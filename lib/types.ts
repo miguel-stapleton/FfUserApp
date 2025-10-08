@@ -109,6 +109,7 @@ export interface ArtistProposalCard {
   beautyVenue?: string
   budget?: number
   notes?: string
+  observations?: string
   response?: ProposalResponse
   respondedAt?: Date
   createdAt: Date
