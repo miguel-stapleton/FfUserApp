@@ -192,7 +192,7 @@ export async function GET(request: NextRequest) {
         }
       `
 
-      const clientsResponse = await axios.post(
+      const clientsResponse: any = await axios.post(
         MONDAY_API_URL,
         {
           query: clientsQuery,
