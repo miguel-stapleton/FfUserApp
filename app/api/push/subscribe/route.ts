@@ -101,10 +101,7 @@ export async function DELETE(request: NextRequest) {
     // Delete the push subscription
     await prisma.pushSubscription.delete({
       where: {
-        userId_endpoint: {
-          userId: payload.userId,
-          endpoint,
-        },
+        endpoint,
       },
     })
 
