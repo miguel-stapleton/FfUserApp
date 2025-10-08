@@ -98,7 +98,7 @@ async function handleStatusChange(
       action: 'ERROR',
       entityType: 'WEBHOOK',
       entityId: mondayItemId,
-      payload: {
+      details: {
         error: error instanceof Error ? error.message : 'Unknown error',
         serviceType,
         newStatus,
@@ -125,7 +125,7 @@ async function handleUndecidedStatus(
     action: 'MARKED_UNDECIDED',
     entityType: 'CLIENT_SERVICE',
     entityId: clientServiceId,
-    payload: {
+    details: {
       mondayItemId,
       serviceType,
       timestamp: timestamp.toISOString(),
@@ -162,7 +162,7 @@ async function handleUndecidedStatus(
     action: 'STARTED',
     entityType: 'BATCH',
     entityId: batchId,
-    payload: {
+    details: {
       mode: 'BROADCAST',
       serviceType,
       proposalCount,
@@ -264,7 +264,7 @@ async function handleTravellingFeeStatus(
     action: 'STARTED',
     entityType: 'BATCH',
     entityId: batchId,
-    payload: {
+    details: {
       mode: 'SINGLE',
       serviceType,
       chosenArtistId: artist.id,

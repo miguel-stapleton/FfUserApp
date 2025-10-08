@@ -115,7 +115,7 @@ async function handleSingleBatchTimeout(batch: any, clientService: any, result: 
       action: 'SINGLE_BATCH_TIMEOUT_TO_BROADCAST',
       entityType: 'BATCH',
       entityId: batch.id,
-      payload: {
+      details: {
         originalBatchId: batch.id,
         newBroadcastBatchId: broadcastResult.batchId,
         clientServiceId: clientService.id,
@@ -156,7 +156,7 @@ async function handleSendOptions(batch: any, clientService: any, result: Process
       action: 'EXPIRED_SENT_OPTIONS',
       entityType: 'BATCH',
       entityId: batch.id,
-      payload: {
+      details: {
         clientServiceId: clientService.id,
         mondayClientItemId: clientService.mondayClientItemId,
         clientName: clientService.clientName,
@@ -196,7 +196,7 @@ async function handleNoAvailability(batch: any, clientService: any, result: Proc
       action: 'EXPIRED_NO_AVAILABILITY',
       entityType: 'BATCH',
       entityId: batch.id,
-      payload: {
+      details: {
         clientServiceId: clientService.id,
         mondayClientItemId: clientService.mondayClientItemId,
         clientName: clientService.clientName,
