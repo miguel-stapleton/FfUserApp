@@ -160,6 +160,29 @@ export interface BackofficeInfo {
   }>
 }
 
+export interface BackofficeClientInfo {
+  mondayClientItemId: string
+  clientName: string
+  eventDate: string
+  beautyVenue?: string
+  observations?: string
+  mStatus?: string
+  hStatus?: string
+  availableArtists: {
+    mua: Array<{ email: string; tier: string }>
+    hs: Array<{ email: string; tier: string }>
+  }
+  unavailableArtists: {
+    mua: Array<{ email: string; tier: string }>
+    hs: Array<{ email: string; tier: string }>
+  }
+  timeline: Array<{
+    timestamp: string
+    event: string
+    icon: string
+  }>
+}
+
 // API request types
 export interface CreateBatchRequest {
   clientServiceId: string
