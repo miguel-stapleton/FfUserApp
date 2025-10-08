@@ -50,3 +50,6 @@ public/uploads/
 *.swo
 *~
 ffuser-beauty/
+
+# Unused routes
+app/api/proposals/[id]/
