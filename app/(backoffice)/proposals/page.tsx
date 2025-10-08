@@ -65,7 +65,7 @@ export default function BackofficeProposalsPage() {
     }
   }
 
-  const getMStatusBadgeVariant = (mStatus: string) => {
+  const getMStatusBadgeVariant = (mStatus: string | undefined) => {
     switch (mStatus?.toLowerCase()) {
       case 'undecided – inquire availabilities':
         return 'secondary'
