@@ -88,7 +88,7 @@ export function BackofficeInfoModal({
 
   const renderArtistGroup = (
     title: string,
-    artists: ArtistGroup,
+    artists: Array<{ email: string; tier: string }>,
     icon: React.ReactNode
   ) => (
     <div className="space-y-3">
@@ -97,28 +97,19 @@ export function BackofficeInfoModal({
         <h4 className="font-semibold text-gray-900">{title}</h4>
       </div>
       
-      {(['FOUNDER', 'RESIDENT', 'FRESH'] as const).map(tier => (
-        artists[tier].length > 0 && (
-          <div key={tier} className="ml-6">
-            <h5 className="text-sm font-medium text-gray-700 mb-2">{tier}</h5>
-            <div className="space-y-1">
-              {artists[tier].map((artist, index) => (
-                <div key={index} className="flex items-center justify-between text-sm">
-                  <span className="text-gray-600">{artist.email}</span>
-                  {artist.respondedAt && (
-                    <span className="text-xs text-gray-500">
-                      {formatTimestamp(artist.respondedAt)}
-                    </span>
-                  )}
-                </div>
-              ))}
+      {artists.length === 0 ? (
+        <p className="text-sm text-gray-500">None</p>
+      ) : (
+        <div className="space-y-2">
+          {artists.map((artist, index) => (
+            <div key={index} className="flex items-center justify-between text-sm">
+              <span className="text-gray-700">{artist.email}</span>
+              <Badge variant="outline" className="text-xs">
+                {artist.tier}
+              </Badge>
             </div>
-          </div>
-        )
-      ))}
-      
-      {Object.values(artists).every(group => group.length === 0) && (
-        <p className="ml-6 text-sm text-gray-500 italic">None</p>
+          ))}
+        </div>
       )}
     </div>
   )
