@@ -1,7 +1,7 @@
 import { prisma } from '../prisma'
 import { ArtistType, ProposalResponse, ServiceType } from '@prisma/client'
 import { logAudit } from '../audit'
-import { BackofficeClientInfo } from '@/lib/types'
+import { BackofficeClientInfo, UpsertClientServiceRequest } from '@/lib/types'
 import { getClientFromMonday } from '../monday'
 import { formatInTimeZone } from 'date-fns-tz'
 
@@ -24,7 +24,7 @@ export async function upsertClientServiceFromMonday(
   let clientService = await prisma.clientService.findFirst({
     where: {
       mondayClientItemId,
-      serviceType,
+      service: serviceType,
     },
   })
 
@@ -33,13 +33,10 @@ export async function upsertClientServiceFromMonday(
     clientService = await prisma.clientService.update({
       where: { id: clientService.id },
       data: {
-        clientName: mondayClient.name,
-        clientEmail: mondayClient.email,
-        clientPhone: mondayClient.phone,
-        eventDate: mondayClient.eventDate,
-        eventLocation: mondayClient.location,
-        budget: mondayClient.budget,
-        notes: mondayClient.notes,
+        bridesName: mondayClient.name,
+        weddingDate: mondayClient.eventDate,
+        beautyVenue: mondayClient.beautyVenue || '',
+        description: mondayClient.notes,
       },
     })
   } else {
@@ -47,14 +44,11 @@ export async function upsertClientServiceFromMonday(
     clientService = await prisma.clientService.create({
       data: {
         mondayClientItemId,
-        serviceType,
-        clientName: mondayClient.name,
-        clientEmail: mondayClient.email,
-        clientPhone: mondayClient.phone,
-        eventDate: mondayClient.eventDate,
-        eventLocation: mondayClient.location,
-        budget: mondayClient.budget,
-        notes: mondayClient.notes,
+        service: serviceType,
+        bridesName: mondayClient.name,
+        weddingDate: mondayClient.eventDate,
+        beautyVenue: mondayClient.beautyVenue || '',
+        description: mondayClient.notes,
       },
     })
   }
@@ -64,15 +58,13 @@ export async function upsertClientServiceFromMonday(
     action: 'UPSERT',
     entityType: 'CLIENT_SERVICE',
     entityId: clientService.id,
-    payload: {
+    details: {
       mondayClientItemId,
-      serviceType,
-      clientName: mondayClient.name,
-      clientEmail: mondayClient.email,
-      eventDate: mondayClient.eventDate.toISOString(),
-      isNew: !clientService.updatedAt || clientService.createdAt === clientService.updatedAt,
+      service: serviceType,
+      bridesName: mondayClient.name,
+      weddingDate: mondayClient.eventDate.toISOString(),
     },
-    actorUserId,
+    userId: actorUserId,
   })
 
   return clientService.id
@@ -89,7 +81,7 @@ export async function upsertClientService(
   let clientService = await prisma.clientService.findFirst({
     where: {
       mondayClientItemId: data.mondayClientItemId,
-      serviceType: data.serviceType,
+      service: data.serviceType,
     },
   })
 
@@ -98,13 +90,10 @@ export async function upsertClientService(
     clientService = await prisma.clientService.update({
       where: { id: clientService.id },
       data: {
-        clientName: data.clientName,
-        clientEmail: data.clientEmail,
-        clientPhone: data.clientPhone,
-        eventDate: data.eventDate,
-        eventLocation: data.eventLocation,
-        budget: data.budget,
-        notes: data.notes,
+        bridesName: data.clientName,
+        weddingDate: data.eventDate,
+        beautyVenue: data.eventLocation || '',
+        description: data.notes,
       },
     })
   } else {
@@ -112,14 +101,11 @@ export async function upsertClientService(
     clientService = await prisma.clientService.create({
       data: {
         mondayClientItemId: data.mondayClientItemId,
-        serviceType: data.serviceType,
-        clientName: data.clientName,
-        clientEmail: data.clientEmail,
-        clientPhone: data.clientPhone,
-        eventDate: data.eventDate,
-        eventLocation: data.eventLocation,
-        budget: data.budget,
-        notes: data.notes,
+        service: data.serviceType,
+        bridesName: data.clientName,
+        weddingDate: data.eventDate,
+        beautyVenue: data.eventLocation || '',
+        description: data.notes,
       },
     })
   }
@@ -129,15 +115,13 @@ export async function upsertClientService(
     action: 'UPSERT',
     entityType: 'CLIENT_SERVICE',
     entityId: clientService.id,
-    payload: {
+    details: {
       mondayClientItemId: data.mondayClientItemId,
-      serviceType: data.serviceType,
-      clientName: data.clientName,
-      clientEmail: data.clientEmail,
-      eventDate: data.eventDate.toISOString(),
-      isNew: !clientService.updatedAt || clientService.createdAt === clientService.updatedAt,
+      service: data.serviceType,
+      bridesName: data.clientName,
+      weddingDate: data.eventDate.toISOString(),
     },
-    actorUserId,
+    userId: actorUserId,
   })
 
   return clientService.id
@@ -176,14 +160,14 @@ export async function getClientServiceByMondayId(mondayClientItemId: string) {
  * Get all client services with optional filtering
  */
 export async function getClientServices(options?: {
-  serviceType?: ServiceType
+  service?: ServiceType
   limit?: number
   offset?: number
 }) {
   const where: any = {}
   
-  if (options?.serviceType) {
-    where.serviceType = options.serviceType
+  if (options?.service) {
+    where.service = options.service
   }
 
   return await prisma.clientService.findMany({
@@ -200,7 +184,7 @@ export async function getClientServices(options?: {
       },
     },
     orderBy: {
-      eventDate: 'asc',
+      weddingDate: 'asc',
     },
     take: options?.limit,
     skip: options?.offset,
@@ -233,13 +217,10 @@ export async function syncClientFromMonday(
   await prisma.clientService.update({
     where: { mondayClientItemId },
     data: {
-      clientName: mondayClient.name,
-      clientEmail: mondayClient.email,
-      clientPhone: mondayClient.phone,
-      eventDate: mondayClient.eventDate,
-      eventLocation: mondayClient.location,
-      budget: mondayClient.budget,
-      notes: mondayClient.notes,
+      bridesName: mondayClient.name,
+      weddingDate: mondayClient.eventDate,
+      beautyVenue: mondayClient.beautyVenue,
+      description: mondayClient.notes,
     },
   })
 
@@ -248,13 +229,12 @@ export async function syncClientFromMonday(
     action: 'SYNC',
     entityType: 'CLIENT_SERVICE',
     entityId: existingClient.id,
-    payload: {
+    details: {
       mondayClientItemId,
-      clientName: mondayClient.name,
-      clientEmail: mondayClient.email,
-      eventDate: mondayClient.eventDate.toISOString(),
+      bridesName: mondayClient.name,
+      weddingDate: mondayClient.eventDate.toISOString(),
     },
-    actorUserId,
+    userId: actorUserId,
   })
 }
 
@@ -294,11 +274,11 @@ export async function deleteClientService(
     action: 'DELETE',
     entityType: 'CLIENT_SERVICE',
     entityId: clientServiceId,
-    payload: {
-      clientName: clientService.clientName,
+    details: {
+      bridesName: clientService.bridesName,
       mondayClientItemId: clientService.mondayClientItemId,
     },
-    actorUserId,
+    userId: actorUserId,
   })
 }
 
@@ -344,8 +324,8 @@ export async function getBackofficeClientInfo(mondayClientItemId: string): Promi
     }
 
     // Get the latest OPEN batch or most recent batch for each service type
-    const muaService = clientServices.find(cs => cs.serviceType === ServiceType.MUA)
-    const hsService = clientServices.find(cs => cs.serviceType === ServiceType.HS)
+    const muaService = clientServices.find(cs => cs.service === ServiceType.MUA)
+    const hsService = clientServices.find(cs => cs.service === ServiceType.HS)
 
     const getLatestBatch = (service: any) => {
       if (!service?.batches?.length) return null
@@ -412,20 +392,20 @@ export async function getBackofficeClientInfo(mondayClientItemId: string): Promi
 
         switch (log.action) {
           case 'BATCH_CREATED':
-            event = `${service.serviceType} batch created`
+            event = `${service.service} batch created`
             icon = '🚀'
             break
           case 'BATCH_COMPLETED':
-            event = `${service.serviceType} batch completed`
+            event = `${service.service} batch completed`
             icon = '✅'
             break
           case 'PROPOSAL_RESPONSE':
             const payload = log.payload as any
-            event = `${payload.artistEmail} responded ${payload.response} to ${service.serviceType} proposal`
+            event = `${payload.artistEmail} responded ${payload.response} to ${service.service} proposal`
             icon = payload.response === 'YES' ? '✅' : '❌'
             break
           default:
-            event = `${log.action} - ${service.serviceType}`
+            event = `${log.action} - ${service.service}`
         }
 
         timeline.push({ timestamp, event, icon })
@@ -462,8 +442,8 @@ export async function getBackofficeClientInfo(mondayClientItemId: string): Promi
 
     return {
       mondayClientItemId,
-      clientName: mondayClient.name,
-      eventDate: mondayClient.eventDate,
+      bridesName: mondayClient.name,
+      weddingDate: mondayClient.eventDate,
       beautyVenue: mondayClient.beautyVenue,
       observations: mondayClient.observations,
       mStatus: mondayClient.mStatus,
