@@ -69,7 +69,7 @@ export function ProposalCard({ proposal, onRespond }: ProposalCardProps) {
             </div>
           </div>
           <Badge variant="secondary" className="bg-pink-100 text-pink-800">
-            {proposal.serviceType === 'MUA' ? 'Makeup' : 'Hair Styling'}
+            {String(proposal.serviceType) === 'MUA' ? 'Makeup' : 'Hair Styling'}
           </Badge>
         </div>
       </CardHeader>
