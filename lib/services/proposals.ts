@@ -431,10 +431,12 @@ export async function respondToProposal({
     await logAudit({
       userId: actorUserId,
       action: 'PROPOSAL_RESPONSE',
+      entityType: 'PROPOSAL',
+      entityId: proposalId,
       details: {
         proposalId,
         response,
-        clientName: proposal.proposalBatch?.clientService?.clientName,
+        bridesName: proposal.proposalBatch?.clientService?.bridesName,
         artistEmail: proposal.artist?.email,
       },
     })
@@ -444,8 +446,7 @@ export async function respondToProposal({
       await tx.proposalBatch.update({
         where: { id: proposal.proposalBatchId },
         data: {
-          state: 'COMPLETED',
-          completedAt: new Date(),
+          state: 'COMPLETED' as any,
         },
       })
 
@@ -475,8 +476,7 @@ export async function respondToProposal({
       await tx.proposalBatch.update({
         where: { id: proposal.proposalBatchId },
         data: {
-          state: 'COMPLETED',
-          completedAt: new Date(),
+          state: 'COMPLETED' as any,
         },
       })
     }
@@ -535,7 +535,7 @@ export async function getBackofficeProposals(): Promise<BackofficeRow[]> {
         }
       },
       include: {
-        proposalBatches: {
+        batches: {
           include: {
             proposals: {
               include: {
@@ -555,7 +555,7 @@ export async function getBackofficeProposals(): Promise<BackofficeRow[]> {
       const clientService = clientServices.find(cs => cs.mondayClientItemId === mondayClient.mondayItemId)
       
       // Get latest batch proposals
-      const latestBatch = clientService?.proposalBatches?.[0]
+      const latestBatch = clientService?.batches?.[0]
       const proposals = latestBatch?.proposals || []
 
       // Group artists by type and tier
