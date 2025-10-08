@@ -6,7 +6,6 @@ import { log as auditLog } from '@/lib/services/audit'
 import { sendNewProposalNotification } from '@/lib/push'
 import { getClientFromMonday, getArtistByMondayId } from '@/lib/monday'
 import { ServiceType } from '@/lib/types'
-import { sendPushToArtists } from '@/lib/push'
 
 interface MondayWebhookPayload {
   event: {
@@ -185,16 +184,11 @@ async function handleUndecidedStatus(
 
     // Send push notifications to all selected artists
     try {
-      await sendPushToArtists(
+      await sendNewProposalNotification(
         artists.map(a => a.id),
-        'New Wedding Proposal',
-        `New ${serviceType === 'MUA' ? 'makeup' : 'hair styling'} proposal available for ${clientData.name}`,
-        {
-          batchId: batchId.toString(),
-          clientName: clientData.name,
-          serviceType,
-          mode: 'BROADCAST'
-        }
+        clientData.name,
+        serviceTypeEnum,
+        clientData.eventDate
       )
     } catch (pushError) {
       console.error('Failed to send push notifications:', pushError)
@@ -292,16 +286,11 @@ async function handleTravellingFeeStatus(
 
     // Send push notifications to selected artists
     try {
-      await sendPushToArtists(
+      await sendNewProposalNotification(
         [artist.id],
-        'New Wedding Proposal',
-        `You have a new ${serviceType === 'MUA' ? 'makeup' : 'hair styling'} proposal for ${clientData.name}`,
-        {
-          batchId: batchId.toString(),
-          clientName: clientData.name,
-          serviceType,
-          mode: 'SINGLE'
-        }
+        clientData.name,
+        serviceTypeEnum,
+        clientData.eventDate
       )
     } catch (pushError) {
       console.error('Failed to send push notification:', pushError)
