@@ -116,22 +116,24 @@ export interface ArtistProposalCard {
 }
 
 export interface BackofficeRow {
-  id: string
+  mondayClientItemId: string
   clientName: string
-  clientEmail: string
-  serviceType: ServiceType
-  eventDate: Date
-  eventLocation?: string
-  budget?: number
-  batchState: ProposalBatchState
-  batchMode: ProposalBatchMode
-  proposalCount: number
-  responseCount: number
-  yesCount: number
-  noCount: number
-  createdAt: Date
-  startedAt?: Date
-  completedAt?: Date
+  eventDate: string
+  beautyVenue?: string
+  mStatus?: string
+  status: string
+  muaArtists: Array<{
+    email: string
+    tier: string
+    response: string | null
+    respondedAt: Date | null
+  }>
+  hsArtists: Array<{
+    email: string
+    tier: string
+    response: string | null
+    respondedAt: Date | null
+  }>
 }
 
 export interface BackofficeInfo {
