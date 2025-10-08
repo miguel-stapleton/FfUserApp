@@ -584,19 +584,24 @@ export async function getBackofficeProposals(): Promise<BackofficeRow[]> {
           case 'OPEN':
             status = 'Open'
             break
-          case 'COMPLETED':
-            status = 'Completed'
+          case 'SENT_OPTIONS':
+            status = 'Sent Options'
             break
-          case 'CANCELLED':
-            status = 'Cancelled'
+          case 'NO_AVAILABILITY':
+            status = 'No Availability'
             break
+          case 'EXPIRED_NO_ACTION':
+            status = 'Expired'
+            break
+          default:
+            status = 'Unknown'
         }
       }
 
       return {
         mondayClientItemId: mondayClient.mondayItemId,
         clientName: mondayClient.name,
-        eventDate: mondayClient.eventDate,
+        eventDate: mondayClient.eventDate.toISOString(),
         beautyVenue: mondayClient.beautyVenue,
         mStatus: mondayClient.mStatus,
         status,

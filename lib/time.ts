@@ -1,4 +1,4 @@
-import { format, parseISO, isAfter, isBefore, addDays, startOfDay, endOfDay, toZonedTime, fromZonedTime } from 'date-fns'
+import { format, parseISO, isAfter, isBefore, addDays, startOfDay, endOfDay } from 'date-fns'
 import { zonedTimeToUtc, utcToZonedTime } from 'date-fns-tz'
 
 const TIMEZONE = process.env.TIMEZONE || 'Europe/Lisbon'
