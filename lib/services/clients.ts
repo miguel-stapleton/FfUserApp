@@ -1,6 +1,6 @@
 import { prisma } from '../prisma'
 import { ArtistType, ProposalResponse, ServiceType } from '@prisma/client'
-import { createAuditLog } from './audit'
+import { logAudit } from '../audit'
 import { BackofficeClientInfo } from '@/lib/types'
 import { getClientFromMonday } from '../monday'
 import { formatInTimeZone } from 'date-fns-tz'
@@ -49,7 +49,7 @@ export async function upsertClientServiceFromMonday(
   })
 
   // Log the upsert action
-  await createAuditLog({
+  await logAudit({
     action: 'UPSERT',
     entityType: 'CLIENT_SERVICE',
     entityId: clientService.id,
@@ -102,7 +102,7 @@ export async function upsertClientService(
   })
 
   // Log the upsert action
-  await createAuditLog({
+  await logAudit({
     action: 'UPSERT',
     entityType: 'CLIENT_SERVICE',
     entityId: clientService.id,
@@ -221,7 +221,7 @@ export async function syncClientFromMonday(
   })
 
   // Log the sync action
-  await createAuditLog({
+  await logAudit({
     action: 'SYNC',
     entityType: 'CLIENT_SERVICE',
     entityId: existingClient.id,
@@ -267,7 +267,7 @@ export async function deleteClientService(
   })
 
   // Log the deletion
-  await createAuditLog({
+  await logAudit({
     action: 'DELETE',
     entityType: 'CLIENT_SERVICE',
     entityId: clientServiceId,

@@ -1,28 +1,28 @@
 import { prisma } from './prisma'
 
 export interface AuditLogData {
-  userId: string
+  userId?: string
   action: string
+  entityType: string
+  entityId: string
   details?: Record<string, any>
-  ipAddress?: string
-  userAgent?: string
 }
 
 export async function logAudit({
   userId,
   action,
+  entityType,
+  entityId,
   details,
-  ipAddress,
-  userAgent,
 }: AuditLogData): Promise<void> {
   try {
     await prisma.auditLog.create({
       data: {
-        userId,
+        actorUserId: userId || null,
         action,
-        details: details ? JSON.stringify(details) : null,
-        ipAddress,
-        userAgent,
+        entityType,
+        entityId,
+        payload: details || {},
       },
     })
   } catch (error) {
