@@ -81,7 +81,7 @@ export async function upsertClientService(
   let clientService = await prisma.clientService.findFirst({
     where: {
       mondayClientItemId: data.mondayClientItemId,
-      service: data.serviceType,
+      service: data.serviceType as any,
     },
   })
 
@@ -101,7 +101,7 @@ export async function upsertClientService(
     clientService = await prisma.clientService.create({
       data: {
         mondayClientItemId: data.mondayClientItemId,
-        service: data.serviceType,
+        service: data.serviceType as any,
         bridesName: data.clientName,
         weddingDate: data.eventDate,
         beautyVenue: data.eventLocation || '',
@@ -131,12 +131,12 @@ export async function upsertClientService(
  * Get client service by Monday.com item ID
  */
 export async function getClientServiceByMondayId(mondayClientItemId: string) {
-  return await prisma.clientService.findUnique({
+  return await prisma.clientService.findFirst({
     where: {
       mondayClientItemId,
     },
     include: {
-      proposalBatches: {
+      batches: {
         include: {
           proposals: {
             include: {
@@ -173,12 +173,11 @@ export async function getClientServices(options?: {
   return await prisma.clientService.findMany({
     where,
     include: {
-      proposalBatches: {
+      batches: {
         select: {
           id: true,
           state: true,
           mode: true,
-          actualCount: true,
           createdAt: true,
         },
       },
@@ -198,7 +197,7 @@ export async function syncClientFromMonday(
   mondayClientItemId: string,
   actorUserId?: string
 ): Promise<void> {
-  const existingClient = await prisma.clientService.findUnique({
+  const existingClient = await prisma.clientService.findFirst({
     where: { mondayClientItemId },
   })
 
@@ -215,11 +214,11 @@ export async function syncClientFromMonday(
 
   // Update the client service
   await prisma.clientService.update({
-    where: { mondayClientItemId },
+    where: { id: existingClient.id },
     data: {
       bridesName: mondayClient.name,
       weddingDate: mondayClient.eventDate,
-      beautyVenue: mondayClient.beautyVenue,
+      beautyVenue: mondayClient.beautyVenue || '',
       description: mondayClient.notes,
     },
   })
@@ -254,14 +253,14 @@ export async function deleteClientService(
   }
 
   // Check if there are any active proposal batches
-  const activeBatches = await prisma.proposalBatch.count({
+  const activeBatches = await prisma.proposalBatch.findMany({
     where: {
       clientServiceId,
-      state: { in: ['PENDING', 'ACTIVE'] },
+      state: 'OPEN',
     },
   })
 
-  if (activeBatches > 0) {
+  if (activeBatches.length > 0) {
     throw new Error('Cannot delete client service with active proposal batches')
   }
 
@@ -343,31 +342,39 @@ export async function getBackofficeClientInfo(mondayClientItemId: string): Promi
     ]
 
     // Group artists by availability and type/tier
-    const availableArtists = {
-      MUA: { FOUNDER: [], RESIDENT: [], FRESH: [] },
-      HS: { FOUNDER: [], RESIDENT: [], FRESH: [] }
+    type ArtistInfo = {
+      email: string
+      tier: string
+    }
+    
+    const availableArtists: {
+      mua: ArtistInfo[]
+      hs: ArtistInfo[]
+    } = {
+      mua: [],
+      hs: []
     }
 
-    const unavailableArtists = {
-      MUA: { FOUNDER: [], RESIDENT: [], FRESH: [] },
-      HS: { FOUNDER: [], RESIDENT: [], FRESH: [] }
+    const unavailableArtists: {
+      mua: ArtistInfo[]
+      hs: ArtistInfo[]
+    } = {
+      mua: [],
+      hs: []
     }
 
     allProposals.forEach(proposal => {
-      const artist = {
+      const artist: ArtistInfo = {
         email: proposal.artist.email,
         tier: proposal.artist.tier,
-        response: proposal.response,
-        respondedAt: proposal.respondedAt
       }
 
-      const type = proposal.artist.type as keyof typeof availableArtists
-      const tier = proposal.artist.tier as keyof typeof availableArtists.MUA
+      const type = proposal.artist.type === 'MUA' ? 'mua' : 'hs'
 
       if (proposal.response === ProposalResponse.YES) {
-        availableArtists[type][tier].push(artist)
+        availableArtists[type].push(artist)
       } else if (proposal.response === ProposalResponse.NO) {
-        unavailableArtists[type][tier].push(artist)
+        unavailableArtists[type].push(artist)
       }
     })
 
@@ -442,8 +449,8 @@ export async function getBackofficeClientInfo(mondayClientItemId: string): Promi
 
     return {
       mondayClientItemId,
-      bridesName: mondayClient.name,
-      weddingDate: mondayClient.eventDate,
+      clientName: mondayClient.name,
+      eventDate: mondayClient.eventDate.toISOString(),
       beautyVenue: mondayClient.beautyVenue,
       observations: mondayClient.observations,
       mStatus: mondayClient.mStatus,

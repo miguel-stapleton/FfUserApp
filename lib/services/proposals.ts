@@ -79,7 +79,7 @@ export async function createBatchAndProposals(
         clientServiceId,
         mode,
         state: 'OPEN',
-        startReason: reason,
+        startReason: reason as any,
         deadlineAt,
       },
     })
@@ -250,7 +250,7 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
         }
       `
 
-      const clientsResponse = await axios.post(
+      const clientsResponse: any = await axios.post(
         MONDAY_API_URL,
         {
           query: clientsQuery,
@@ -360,12 +360,10 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
           id: item.id,
           batchId: 'monday-' + item.id, // Virtual batch ID for Monday.com items
           clientName: brideName,
-          serviceType: artist.type,
+          serviceType: artist.type as any,
           eventDate,
           beautyVenue,
           observations,
-          batchMode: 'BROADCAST' as ProposalBatchMode,
-          batchDeadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
           createdAt: new Date(),
           isExpired: false,
         })
@@ -395,7 +393,7 @@ export async function respondToProposal({
     const proposal = await tx.proposal.findUnique({
       where: { id: proposalId },
       include: {
-        batch: {
+        proposalBatch: {
           include: {
             clientService: true,
           },
@@ -416,7 +414,7 @@ export async function respondToProposal({
       throw new Error('Proposal has already been responded to')
     }
 
-    if (proposal.batch?.state !== 'ACTIVE') {
+    if (proposal.proposalBatch?.state !== 'OPEN') {
       throw new Error('Proposal batch is not active')
     }
 
@@ -436,15 +434,15 @@ export async function respondToProposal({
       details: {
         proposalId,
         response,
-        clientName: proposal.batch?.clientService?.clientName,
+        clientName: proposal.proposalBatch?.clientService?.clientName,
         artistEmail: proposal.artist?.email,
       },
     })
 
     // If this is a SINGLE mode batch and someone said YES, complete the batch
-    if (proposal.batch?.mode === 'SINGLE' && response === 'YES') {
+    if (proposal.proposalBatch?.mode === 'SINGLE' && response === 'YES') {
       await tx.proposalBatch.update({
-        where: { id: proposal.batchId },
+        where: { id: proposal.proposalBatchId },
         data: {
           state: 'COMPLETED',
           completedAt: new Date(),
@@ -454,7 +452,7 @@ export async function respondToProposal({
       // Cancel other pending proposals in this batch
       await tx.proposal.updateMany({
         where: {
-          batchId: proposal.batchId,
+          proposalBatchId: proposal.proposalBatchId,
           response: null,
           id: { not: proposalId },
         },
@@ -468,14 +466,14 @@ export async function respondToProposal({
     // Check if all proposals in batch have been responded to
     const remainingProposals = await tx.proposal.count({
       where: {
-        batchId: proposal.batchId,
+        proposalBatchId: proposal.proposalBatchId,
         response: null,
       },
     })
 
-    if (remainingProposals === 0 && proposal.batch?.state === 'ACTIVE') {
+    if (remainingProposals === 0 && proposal.proposalBatch?.state === 'OPEN') {
       await tx.proposalBatch.update({
-        where: { id: proposal.batchId },
+        where: { id: proposal.proposalBatchId },
         data: {
           state: 'COMPLETED',
           completedAt: new Date(),
