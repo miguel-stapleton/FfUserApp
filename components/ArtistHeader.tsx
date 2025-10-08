@@ -86,9 +86,11 @@ export function ArtistHeader({ artistName }: ArtistHeaderProps) {
             >
               <div className="w-8 h-8 bg-pink-100 rounded-full flex items-center justify-center overflow-hidden">
                 {profilePicture ? (
-                  <img 
+                  <Image 
                     src={profilePicture} 
                     alt="Profile" 
+                    width={32}
+                    height={32}
                     className="w-full h-full object-cover"
                   />
                 ) : (

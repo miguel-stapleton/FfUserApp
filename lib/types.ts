@@ -216,21 +216,29 @@ export interface UpsertClientServiceRequest {
 export interface MondayArtist {
   itemId: string
   email: string
+  name: string
+  type: 'MUA' | 'HS'
   board: string
   tier: Tier
   active: boolean
 }
 
 export interface MondayClient {
-  itemId: string
+  mondayItemId: string
   name: string
   email: string
   phone?: string
   eventDate: Date
+  beautyVenue?: string
   location?: string
   budget?: number
-  serviceType: ServiceType
+  serviceType?: ServiceType
   notes?: string
+  observations?: string
+  mStatus?: string
+  hStatus?: string
+  chosenMua?: string | null
+  chosenHs?: string | null
 }
 
 // Utility types

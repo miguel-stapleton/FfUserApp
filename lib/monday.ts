@@ -25,7 +25,7 @@ export class MondayService {
     this.boardId = MONDAY_BOARD_ID
   }
 
-  private async makeRequest(query: string, variables?: any) {
+  public async makeRequest(query: string, variables?: any) {
     try {
       const response = await axios.post(
         MONDAY_API_URL,

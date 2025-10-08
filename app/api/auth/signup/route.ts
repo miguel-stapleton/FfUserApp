@@ -75,6 +75,8 @@ export async function POST(request: NextRequest) {
     await logAudit({
       userId: result.user.id,
       action: 'USER_SIGNUP',
+      entityType: 'USER',
+      entityId: result.user.id,
       details: {
         email,
         username,

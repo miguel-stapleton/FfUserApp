@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { format } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import { X, Clock, Users, CheckCircle, XCircle, Calendar, MapPin, FileText } from 'lucide-react'
@@ -30,13 +30,7 @@ export function BackofficeInfoModal({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (isOpen && mondayClientItemId) {
-      fetchClientInfo()
-    }
-  }, [isOpen, mondayClientItemId])
-
-  const fetchClientInfo = async () => {
+  const fetchClientInfo = useCallback(async () => {
     if (!mondayClientItemId) return
 
     setLoading(true)
@@ -59,7 +53,13 @@ export function BackofficeInfoModal({
     } finally {
       setLoading(false)
     }
-  }
+  }, [mondayClientItemId])
+
+  useEffect(() => {
+    if (isOpen && mondayClientItemId) {
+      fetchClientInfo()
+    }
+  }, [isOpen, mondayClientItemId, fetchClientInfo])
 
   const formatTimestamp = (timestamp: string) => {
     return formatInTimeZone(

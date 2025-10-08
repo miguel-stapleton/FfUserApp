@@ -48,6 +48,8 @@ export async function POST(request: NextRequest) {
     await logAudit({
       userId: user.id,
       action: 'USER_LOGIN',
+      entityType: 'USER',
+      entityId: user.id,
       details: {
         loginMethod: emailOrUsername.includes('@') ? 'email' : 'username',
         userAgent: request.headers.get('user-agent') || 'unknown',

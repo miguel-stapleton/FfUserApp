@@ -73,6 +73,8 @@ export async function POST(request: NextRequest) {
     await logAudit({
       userId: user.id,
       action: 'DEBUG_CREATE_BATCH',
+      entityType: 'BATCH',
+      entityId: result.batchId,
       details: {
         clientServiceId: clientService.id,
         batchId: result.batchId,

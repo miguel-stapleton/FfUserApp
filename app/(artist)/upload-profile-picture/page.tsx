@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Upload, User } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { AuthGate } from '@/components/AuthGate'
 import { ArtistHeader } from '@/components/ArtistHeader'
 import { Button } from '@/components/ui/button'
@@ -130,7 +131,7 @@ export default function UploadProfilePicturePage() {
                 <div className="flex justify-center">
                   <div className="w-32 h-32 rounded-full bg-gray-100 flex items-center justify-center overflow-hidden border-4 border-gray-200">
                     {previewUrl ? (
-                      <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" />
+                      <Image src={previewUrl} alt="Preview" width={128} height={128} className="object-cover" />
                     ) : (
                       <User className="w-16 h-16 text-gray-400" />
                     )}
