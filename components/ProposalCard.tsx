@@ -26,11 +26,12 @@ export function ProposalCard({ proposal, onRespond }: ProposalCardProps) {
     }
   }
 
-  const formatDate = (dateString: string) => {
+  const formatDate = (dateString: string | Date) => {
     try {
-      return format(new Date(dateString), 'EEEE, MMMM d, yyyy')
-    } catch {
-      return dateString
+      const dateStr = typeof dateString === 'string' ? dateString : dateString.toISOString()
+      return format(new Date(dateStr), 'EEEE, MMMM d, yyyy')
+    } catch (error) {
+      return 'Invalid date'
     }
   }
 
