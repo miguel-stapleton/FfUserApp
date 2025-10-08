@@ -117,7 +117,7 @@ async function handleUndecidedStatus(
   // Ensure ClientService exists
   const clientServiceId = await upsertClientServiceFromMonday(
     mondayItemId,
-    serviceTypeEnum
+    serviceTypeEnum as any
   )
 
   // Log the status change
@@ -248,7 +248,7 @@ async function handleTravellingFeeStatus(
   // Ensure ClientService exists
   const clientServiceId = await upsertClientServiceFromMonday(
     mondayItemId,
-    serviceTypeEnum
+    serviceTypeEnum as any
   )
 
   // Create SINGLE batch for the chosen artist
