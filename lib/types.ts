@@ -106,6 +106,7 @@ export interface ArtistProposalCard {
   serviceType: ServiceType
   eventDate: Date
   eventLocation?: string
+  beautyVenue?: string
   budget?: number
   notes?: string
   response?: ProposalResponse
