@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { setEmailAutomation } from '@/lib/monday'
-import { log as auditLog } from '@/lib/services/audit'
+import { logAudit } from '@/lib/audit'
 import { createBatchAndProposals } from '@/lib/services/proposals'
 
 export interface ProcessDeadlinesResult {
@@ -111,7 +111,7 @@ async function handleSingleBatchTimeout(batch: any, clientService: any, result: 
     )
 
     // Log audit event
-    await auditLog({
+    await logAudit({
       action: 'SINGLE_BATCH_TIMEOUT_TO_BROADCAST',
       entityType: 'BATCH',
       entityId: batch.id,
@@ -152,7 +152,7 @@ async function handleSendOptions(batch: any, clientService: any, result: Process
     })
 
     // Log audit event
-    await auditLog({
+    await logAudit({
       action: 'EXPIRED_SENT_OPTIONS',
       entityType: 'BATCH',
       entityId: batch.id,
@@ -192,7 +192,7 @@ async function handleNoAvailability(batch: any, clientService: any, result: Proc
     })
 
     // Log audit event
-    await auditLog({
+    await logAudit({
       action: 'EXPIRED_NO_AVAILABILITY',
       entityType: 'BATCH',
       entityId: batch.id,

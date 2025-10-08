@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { upsertClientServiceFromMonday } from '@/lib/services/clients'
 import { createBatchAndProposals } from '@/lib/services/proposals'
-import { log as auditLog } from '@/lib/services/audit'
+import { logAudit } from '@/lib/audit'
 import { sendNewProposalNotification } from '@/lib/push'
 import { getClientFromMonday, getArtistByMondayId } from '@/lib/monday'
 import { ServiceType } from '@/lib/types'
@@ -94,7 +94,7 @@ async function handleStatusChange(
     console.error(`Error handling ${serviceType} status change:`, error)
     
     // Log the error for audit purposes
-    await auditLog({
+    await logAudit({
       action: 'ERROR',
       entityType: 'WEBHOOK',
       entityId: mondayItemId,
@@ -121,7 +121,7 @@ async function handleUndecidedStatus(
   )
 
   // Log the status change
-  await auditLog({
+  await logAudit({
     action: 'MARKED_UNDECIDED',
     entityType: 'CLIENT_SERVICE',
     entityId: clientServiceId,
@@ -158,7 +158,7 @@ async function handleUndecidedStatus(
   )
 
   // Log batch creation
-  await auditLog({
+  await logAudit({
     action: 'STARTED',
     entityType: 'BATCH',
     entityId: batchId,
@@ -260,7 +260,7 @@ async function handleTravellingFeeStatus(
   )
 
   // Log batch creation
-  await auditLog({
+  await logAudit({
     action: 'STARTED',
     entityType: 'BATCH',
     entityId: batchId,
