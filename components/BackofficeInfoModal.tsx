@@ -199,14 +199,14 @@ export function BackofficeInfoModal({
               <div className="flex gap-4">
                 <div>
                   <span className="text-sm font-medium text-gray-700">MUA Status:</span>
-                  <Badge variant={getStatusBadgeVariant(clientInfo.currentMStatus)} className="ml-2">
-                    {clientInfo.currentMStatus || 'Not set'}
+                  <Badge variant={getStatusBadgeVariant(clientInfo.mStatus)} className="ml-2">
+                    {clientInfo.mStatus || 'Not set'}
                   </Badge>
                 </div>
                 <div>
-                  <span className="text-sm font-medium text-gray-700">Hair Status:</span>
-                  <Badge variant={getStatusBadgeVariant(clientInfo.currentHStatus)} className="ml-2">
-                    {clientInfo.currentHStatus || 'Not set'}
+                  <span className="text-sm font-medium text-gray-700">HS Status:</span>
+                  <Badge variant={getStatusBadgeVariant(clientInfo.hStatus)} className="ml-2">
+                    {clientInfo.hStatus || 'Not set'}
                   </Badge>
                 </div>
               </div>
