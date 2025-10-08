@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
     const result = await createBatchAndProposals(
       clientService.id,
       batchMode,
-      'UNDECIDED'
+      'UNDECIDED' as any
     )
 
     // Update deadline to specified minutes from now

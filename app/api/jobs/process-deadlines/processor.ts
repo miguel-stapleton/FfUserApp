@@ -107,7 +107,7 @@ async function handleSingleBatchTimeout(batch: any, clientService: any, result: 
     const broadcastResult = await createBatchAndProposals(
       clientService.id,
       'BROADCAST',
-      'CHOSEN_NO'
+      'CHOSEN_NO' as any
     )
 
     // Log audit event
@@ -147,7 +147,7 @@ async function handleSendOptions(batch: any, clientService: any, result: Process
     await prisma.proposalBatch.update({
       where: { id: batch.id },
       data: {
-        state: 'COMPLETED', 
+        state: 'EXPIRED_NO_ACTION', 
         completedAt: new Date(),
       },
     })
@@ -188,7 +188,7 @@ async function handleNoAvailability(batch: any, clientService: any, result: Proc
     await prisma.proposalBatch.update({
       where: { id: batch.id },
       data: {
-        state: 'COMPLETED', 
+        state: 'EXPIRED_NO_ACTION', 
         completedAt: new Date(),
       },
     })

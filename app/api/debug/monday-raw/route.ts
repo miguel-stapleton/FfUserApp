@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      boards: boards.map(board => ({
+      boards: boards.map((board: any) => ({
         id: board.id,
         name: board.name,
         itemCount: board.items_page.items.length,
