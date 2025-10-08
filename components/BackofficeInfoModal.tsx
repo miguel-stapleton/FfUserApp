@@ -7,7 +7,7 @@ import { X, Clock, Users, CheckCircle, XCircle, Calendar, MapPin, FileText } fro
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
-import { BackofficeInfo } from '@/lib/types'
+import { BackofficeClientInfo } from '@/lib/types'
 
 interface BackofficeInfoModalProps {
   mondayClientItemId: string | null
@@ -26,7 +26,7 @@ export function BackofficeInfoModal({
   isOpen, 
   onClose 
 }: BackofficeInfoModalProps) {
-  const [clientInfo, setClientInfo] = useState<BackofficeInfo | null>(null)
+  const [clientInfo, setClientInfo] = useState<BackofficeClientInfo | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
