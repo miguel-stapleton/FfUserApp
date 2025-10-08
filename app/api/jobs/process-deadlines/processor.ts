@@ -148,7 +148,6 @@ async function handleSendOptions(batch: any, clientService: any, result: Process
       where: { id: batch.id },
       data: {
         state: 'EXPIRED_NO_ACTION', 
-        completedAt: new Date(),
       },
     })
 
@@ -189,7 +188,6 @@ async function handleNoAvailability(batch: any, clientService: any, result: Proc
       where: { id: batch.id },
       data: {
         state: 'EXPIRED_NO_ACTION', 
-        completedAt: new Date(),
       },
     })
 
