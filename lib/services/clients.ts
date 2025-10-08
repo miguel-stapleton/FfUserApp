@@ -20,33 +20,44 @@ export async function upsertClientServiceFromMonday(
     throw new Error(`Client not found in Monday.com with ID: ${mondayClientItemId}`)
   }
 
-  // Upsert the client service
-  const clientService = await prisma.clientService.upsert({
+  // Find existing client service or create new one
+  let clientService = await prisma.clientService.findFirst({
     where: {
       mondayClientItemId,
-    },
-    update: {
       serviceType,
-      clientName: mondayClient.name,
-      clientEmail: mondayClient.email,
-      clientPhone: mondayClient.phone,
-      eventDate: mondayClient.eventDate,
-      eventLocation: mondayClient.location,
-      budget: mondayClient.budget,
-      notes: mondayClient.notes,
-    },
-    create: {
-      mondayClientItemId,
-      serviceType,
-      clientName: mondayClient.name,
-      clientEmail: mondayClient.email,
-      clientPhone: mondayClient.phone,
-      eventDate: mondayClient.eventDate,
-      eventLocation: mondayClient.location,
-      budget: mondayClient.budget,
-      notes: mondayClient.notes,
     },
   })
+
+  if (clientService) {
+    // Update existing
+    clientService = await prisma.clientService.update({
+      where: { id: clientService.id },
+      data: {
+        clientName: mondayClient.name,
+        clientEmail: mondayClient.email,
+        clientPhone: mondayClient.phone,
+        eventDate: mondayClient.eventDate,
+        eventLocation: mondayClient.location,
+        budget: mondayClient.budget,
+        notes: mondayClient.notes,
+      },
+    })
+  } else {
+    // Create new
+    clientService = await prisma.clientService.create({
+      data: {
+        mondayClientItemId,
+        serviceType,
+        clientName: mondayClient.name,
+        clientEmail: mondayClient.email,
+        clientPhone: mondayClient.phone,
+        eventDate: mondayClient.eventDate,
+        eventLocation: mondayClient.location,
+        budget: mondayClient.budget,
+        notes: mondayClient.notes,
+      },
+    })
+  }
 
   // Log the upsert action
   await logAudit({
@@ -74,32 +85,43 @@ export async function upsertClientService(
   data: UpsertClientServiceRequest,
   actorUserId?: string
 ): Promise<string> {
-  const clientService = await prisma.clientService.upsert({
+  const clientService = await prisma.clientService.findFirst({
     where: {
       mondayClientItemId: data.mondayClientItemId,
-    },
-    update: {
       serviceType: data.serviceType,
-      clientName: data.clientName,
-      clientEmail: data.clientEmail,
-      clientPhone: data.clientPhone,
-      eventDate: data.eventDate,
-      eventLocation: data.eventLocation,
-      budget: data.budget,
-      notes: data.notes,
-    },
-    create: {
-      mondayClientItemId: data.mondayClientItemId,
-      serviceType: data.serviceType,
-      clientName: data.clientName,
-      clientEmail: data.clientEmail,
-      clientPhone: data.clientPhone,
-      eventDate: data.eventDate,
-      eventLocation: data.eventLocation,
-      budget: data.budget,
-      notes: data.notes,
     },
   })
+
+  if (clientService) {
+    // Update existing
+    clientService = await prisma.clientService.update({
+      where: { id: clientService.id },
+      data: {
+        clientName: data.clientName,
+        clientEmail: data.clientEmail,
+        clientPhone: data.clientPhone,
+        eventDate: data.eventDate,
+        eventLocation: data.eventLocation,
+        budget: data.budget,
+        notes: data.notes,
+      },
+    })
+  } else {
+    // Create new
+    clientService = await prisma.clientService.create({
+      data: {
+        mondayClientItemId: data.mondayClientItemId,
+        serviceType: data.serviceType,
+        clientName: data.clientName,
+        clientEmail: data.clientEmail,
+        clientPhone: data.clientPhone,
+        eventDate: data.eventDate,
+        eventLocation: data.eventLocation,
+        budget: data.budget,
+        notes: data.notes,
+      },
+    })
+  }
 
   // Log the upsert action
   await logAudit({
@@ -321,8 +343,8 @@ export async function getBackofficeClientInfo(mondayClientItemId: string): Promi
     }
 
     // Get the latest OPEN batch or most recent batch for each service type
-    const muaService = clientServices.find(cs => cs.service === ServiceType.MUA)
-    const hsService = clientServices.find(cs => cs.service === ServiceType.HS)
+    const muaService = clientServices.find(cs => cs.serviceType === ServiceType.MUA)
+    const hsService = clientServices.find(cs => cs.serviceType === ServiceType.HS)
 
     const getLatestBatch = (service: any) => {
       if (!service?.batches?.length) return null
@@ -389,20 +411,20 @@ export async function getBackofficeClientInfo(mondayClientItemId: string): Promi
 
         switch (log.action) {
           case 'BATCH_CREATED':
-            event = `${service.service} batch created`
+            event = `${service.serviceType} batch created`
             icon = '🚀'
             break
           case 'BATCH_COMPLETED':
-            event = `${service.service} batch completed`
+            event = `${service.serviceType} batch completed`
             icon = '✅'
             break
           case 'PROPOSAL_RESPONSE':
             const payload = log.payload as any
-            event = `${payload.artistEmail} responded ${payload.response} to ${service.service} proposal`
+            event = `${payload.artistEmail} responded ${payload.response} to ${service.serviceType} proposal`
             icon = payload.response === 'YES' ? '✅' : '❌'
             break
           default:
-            event = `${log.action} - ${service.service}`
+            event = `${log.action} - ${service.serviceType}`
         }
 
         timeline.push({ timestamp, event, icon })
