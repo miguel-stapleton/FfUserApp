@@ -1,0 +1,157 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ARTIST
+  BACKOFFICE
+}
+
+enum ArtistType {
+  MUA
+  HS
+}
+
+enum Tier {
+  FOUNDER
+  RESIDENT
+  FRESH
+}
+
+enum ServiceType {
+  MUA
+  HS
+}
+
+enum ProposalResponse {
+  YES
+  NO
+}
+
+enum ProposalBatchMode {
+  SINGLE
+  BROADCAST
+}
+
+enum ProposalBatchState {
+  OPEN
+  SENT_OPTIONS
+  NO_AVAILABILITY
+  EXPIRED_NO_ACTION
+}
+
+enum BatchStartReason {
+  UNDECIDED
+  CHOSEN_NO
+}
+
+model User {
+  id           String @id @default(cuid())
+  email        String @unique
+  username     String @unique
+  passwordHash String
+  role         UserRole
+  createdAt    DateTime @default(now())
+
+  artist    Artist?
+  pushSubs  PushSubscription[]
+  auditLogs AuditLog[] @relation("UserAuditLogs")
+}
+
+model Artist {
+  id            String      @id @default(cuid())
+  userId        String      @unique
+  user          User        @relation(fields: [userId], references: [id])
+  type          ArtistType
+  tier          Tier
+  email         String      @unique
+  mondayItemId  String      @unique
+  active        Boolean     @default(true)
+  profilePicture String?
+  createdAt     DateTime    @default(now())
+
+  proposals Proposal[]
+
+  @@index([type, active])
+}
+
+model ClientService {
+  id                        String      @id @default(cuid())
+  mondayClientItemId        String
+  service                   ServiceType
+  bridesName                String
+  weddingDate               DateTime
+  beautyVenue               String
+  description               String?
+  chosenArtistMondayItemId  String?
+  currentStatus             String?
+  createdAt                 DateTime    @default(now())
+
+  batches   ProposalBatch[]
+  proposals Proposal[]
+  auditLogs AuditLog[] @relation("ClientServiceAuditLogs")
+
+  @@index([mondayClientItemId, service])
+}
+
+model ProposalBatch {
+  id              String              @id @default(cuid())
+  clientServiceId String
+  clientService   ClientService       @relation(fields: [clientServiceId], references: [id])
+  mode            ProposalBatchMode
+  startReason     BatchStartReason
+  deadlineAt      DateTime
+  state           ProposalBatchState  @default(OPEN)
+  createdAt       DateTime            @default(now())
+
+  proposals Proposal[]
+
+  @@index([clientServiceId, state, deadlineAt])
+}
+
+model Proposal {
+  id              String            @id @default(cuid())
+  proposalBatchId String
+  proposalBatch   ProposalBatch     @relation(fields: [proposalBatchId], references: [id])
+  clientServiceId String
+  clientService   ClientService     @relation(fields: [clientServiceId], references: [id])
+  artistId        String
+  artist          Artist            @relation(fields: [artistId], references: [id])
+  response        ProposalResponse?
+  respondedAt     DateTime?
+  createdAt       DateTime          @default(now())
+
+  @@unique([proposalBatchId, artistId])
+  @@index([artistId, respondedAt])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String?
+  actorUser   User?    @relation("UserAuditLogs", fields: [actorUserId], references: [id])
+  action      String
+  entityType  String
+  entityId    String
+  payload     Json
+  createdAt   DateTime @default(now())
+
+  clientService ClientService? @relation("ClientServiceAuditLogs", fields: [entityId], references: [id])
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+}
