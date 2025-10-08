@@ -216,40 +216,32 @@ export function BackofficeInfoModal({
 
             {/* Available Artists */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                {renderArtistGroup(
-                  'Available MUA Artists',
-                  clientInfo.availableArtists.MUA,
-                  <CheckCircle className="w-5 h-5 text-green-600" />
-                )}
-              </div>
-              <div>
-                {renderArtistGroup(
-                  'Available Hair Artists',
-                  clientInfo.availableArtists.HS,
-                  <CheckCircle className="w-5 h-5 text-green-600" />
-                )}
-              </div>
+              {renderArtistGroup(
+                'Available MUA Artists',
+                clientInfo.availableArtists.mua,
+                <CheckCircle className="w-5 h-5 text-green-600" />
+              )}
+              {renderArtistGroup(
+                'Available HS Artists',
+                clientInfo.availableArtists.hs,
+                <CheckCircle className="w-5 h-5 text-green-600" />
+              )}
             </div>
 
             <Separator />
 
             {/* Unavailable Artists */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                {renderArtistGroup(
-                  'Unavailable MUA Artists',
-                  clientInfo.unavailableArtists.MUA,
-                  <XCircle className="w-5 h-5 text-red-600" />
-                )}
-              </div>
-              <div>
-                {renderArtistGroup(
-                  'Unavailable Hair Artists',
-                  clientInfo.unavailableArtists.HS,
-                  <XCircle className="w-5 h-5 text-red-600" />
-                )}
-              </div>
+              {renderArtistGroup(
+                'Unavailable MUA Artists',
+                clientInfo.unavailableArtists.mua,
+                <XCircle className="w-5 h-5 text-red-600" />
+              )}
+              {renderArtistGroup(
+                'Unavailable HS Artists',
+                clientInfo.unavailableArtists.hs,
+                <XCircle className="w-5 h-5 text-red-600" />
+              )}
             </div>
 
             <Separator />
