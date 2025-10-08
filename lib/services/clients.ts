@@ -85,7 +85,8 @@ export async function upsertClientService(
   data: UpsertClientServiceRequest,
   actorUserId?: string
 ): Promise<string> {
-  const clientService = await prisma.clientService.findFirst({
+  // Find existing client service or create new one
+  let clientService = await prisma.clientService.findFirst({
     where: {
       mondayClientItemId: data.mondayClientItemId,
       serviceType: data.serviceType,
