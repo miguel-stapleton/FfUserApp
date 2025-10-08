@@ -3,6 +3,8 @@ import { requireArtist, handleAuthError } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import axios from 'axios'
 
+export const dynamic = 'force-dynamic'
+
 const MONDAY_API_URL = 'https://api.monday.com/v2'
 const MONDAY_API_TOKEN = process.env.MONDAY_API_TOKEN
 const MONDAY_BOARD_ID = process.env.MONDAY_BOARD_ID
