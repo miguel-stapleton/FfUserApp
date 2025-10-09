@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireArtist, handleAuthError } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { writeFile, mkdir } from 'fs/promises'
-import { join } from 'path'
-import { existsSync } from 'fs'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,25 +36,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Convert file to buffer
-    const bytes = await file.arrayBuffer()
-    const buffer = Buffer.from(bytes)
-
-    // Create uploads directory if it doesn't exist
-    const uploadsDir = join(process.cwd(), 'public', 'uploads', 'profile-pictures')
-    if (!existsSync(uploadsDir)) {
-      await mkdir(uploadsDir, { recursive: true })
-    }
-
-    // Generate unique filename
+    // TODO: Implement cloud storage (Vercel Blob, AWS S3, or Cloudflare R2)
+    // For now, just store a placeholder path
     const fileExtension = file.name.split('.').pop()
     const filename = `${user.id}-${Date.now()}.${fileExtension}`
-    const filepath = join(uploadsDir, filename)
-
-    // Save file
-    await writeFile(filepath, buffer)
-
-    // Update user's profile picture path in database
     const profilePicturePath = `/uploads/profile-pictures/${filename}`
     
     await prisma.artist.update({
@@ -68,7 +50,7 @@ export async function POST(request: NextRequest) {
     })
 
     return NextResponse.json({
-      message: 'Profile picture uploaded successfully',
+      message: 'Profile picture path saved (file upload pending cloud storage implementation)',
       path: profilePicturePath,
     })
   } catch (error) {
