@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireBackoffice } from '@/lib/auth'
 import { getBackofficeClientInfo } from '@/lib/services/clients'
 
+export const dynamic = 'force-dynamic'
+
 interface RouteParams {
   params: {
     mondayClientItemId: string
