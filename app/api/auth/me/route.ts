@@ -2,16 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { verifyToken, getAuthCookie } from '@/lib/auth'
 
-import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
-import { verifyToken, getAuthCookie } from '@/lib/auth'
-
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
-  try {
-    // Get token from cookie
-    const token = getAuthCookie(request)
   try {
     // Get token from cookie
     const token = getAuthCookie(request)
