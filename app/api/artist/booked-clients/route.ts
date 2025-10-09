@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import axios from 'axios'
 
 export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
 const MONDAY_API_URL = 'https://api.monday.com/v2'
 const MONDAY_API_TOKEN = process.env.MONDAY_API_TOKEN
@@ -117,6 +118,14 @@ async function findArtistInMonday(email: string): Promise<ArtistInfo | null> {
 
 export async function GET(request: NextRequest) {
   try {
+    // Validate environment variables
+    if (!process.env.MONDAY_API_TOKEN || !process.env.MONDAY_BOARD_ID) {
+      return NextResponse.json(
+        { error: 'Monday.com configuration missing' },
+        { status: 500 }
+      )
+    }
+
     // Authenticate and get user
     const user = await requireArtist(request)
 
