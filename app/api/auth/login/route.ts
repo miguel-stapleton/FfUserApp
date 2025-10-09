@@ -5,6 +5,8 @@ import { prisma } from '@/lib/prisma'
 import { createToken, setAuthCookie } from '@/lib/auth'
 import { logAudit } from '@/lib/audit'
 
+export const dynamic = 'force-dynamic'
+
 const loginSchema = z.object({
   emailOrUsername: z.string().min(1),
   password: z.string().min(1),
