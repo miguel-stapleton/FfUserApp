@@ -7,6 +7,8 @@ import { sendNewProposalNotification } from '@/lib/push'
 import { getClientFromMonday, getArtistByMondayId } from '@/lib/monday'
 import { ServiceType } from '@/lib/types'
 
+export const dynamic = 'force-dynamic'
+
 interface MondayWebhookPayload {
   event: {
     type: string
