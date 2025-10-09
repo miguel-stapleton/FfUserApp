@@ -6,6 +6,8 @@ import { findArtistByEmail } from '@/lib/monday'
 import { createToken, setAuthCookie } from '@/lib/auth'
 import { logAudit } from '@/lib/audit'
 
+export const dynamic = 'force-dynamic'
+
 const signupSchema = z.object({
   email: z.string().email(),
   username: z.string().min(2),
