@@ -12,7 +12,9 @@ import {
 
 const MONDAY_API_URL = 'https://api.monday.com/v2'
 const MONDAY_API_TOKEN = process.env.MONDAY_API_TOKEN
-const MONDAY_BOARD_ID = process.env.MONDAY_BOARD_ID
+// Always fetch from the Clients board
+const MONDAY_BOARD_ID = process.env.MONDAY_CLIENTS_BOARD_ID || process.env.MONDAY_BOARD_ID
+// Kept for backward compatibility but no longer used for selection
 const MONDAY_MUA_BOARD_ID = process.env.MONDAY_MUA_BOARD_ID
 const MONDAY_HS_BOARD_ID = process.env.MONDAY_HS_BOARD_ID
 const MONDAY_MSTATUS_COLUMN_ID = process.env.MONDAY_MSTATUS_COLUMN_ID || 'project_status'
@@ -226,10 +228,8 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
     let cursor: string | null = null
     let hasMore = true
 
-    // Choose the correct board based on artist type (fallback to MONDAY_BOARD_ID)
-    const boardIdToUse = artist.type === 'MUA'
-      ? (MONDAY_MUA_BOARD_ID || MONDAY_BOARD_ID)
-      : (MONDAY_HS_BOARD_ID || MONDAY_BOARD_ID)
+    // Use the Clients board for all artists
+    const boardIdToUse = MONDAY_BOARD_ID
 
     while (hasMore) {
       const clientsQuery = `
@@ -328,46 +328,31 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
         console.log('No status found for item:', item.id, 'Available columns:', columnValues.map((c:any)=>`${c.id}:${c.text}`).slice(0,10))
       }
 
-      // Robust matching for status (normalize case and dashes)
-      const norm = (s?: string) => (s || '')
-        .toLowerCase()
-        .replace(/[\u2013\u2014]/g, '-') // en/em dash -> hyphen
-        .replace(/\s+/g, ' ') // collapse spaces
-        .trim()
-
-      const statusNorm = norm(status)
-      const targets = [
-        'travelling fee + inquire the artist',
-        'undecided- inquire availabilities', // hyphen version
-        'undecided - inquire availabilities', // with spaces
+      // Exact matching for status values per requirements
+      const targetsExact = [
+        'Travelling fee + inquire the artist',
+        'undecided- inquire availabilities',
         'inquire second option',
-      ].map(norm)
+      ]
 
-      // Skip if status is not one of the target statuses
-      if (!status || !targets.includes(statusNorm)) {
-        continue
-      }
-
-      // Skip if artist has already responded to this client
-      if (respondedClientIds.has(item.id)) {
-        console.log('Skipping client (already responded):', brideName)
+      if (!status || !targetsExact.includes(status)) {
         continue
       }
 
       let shouldInclude = false
 
       // Apply filtering logic based on status
-      if (statusNorm === 'travelling fee + inquire the artist') {
+      if (status === 'Travelling fee + inquire the artist') {
         // Check if whatsapp pattern exists in updates
         if (whatsappPattern) {
           shouldInclude = updates.some((update: any) => 
             update.text_body?.includes(whatsappPattern)
           )
         }
-      } else if (statusNorm === 'undecided- inquire availabilities') {
+      } else if (status === 'undecided- inquire availabilities') {
         // Show all
         shouldInclude = true
-      } else if (statusNorm === 'inquire second option') {
+      } else if (status === 'inquire second option') {
         // Exclude if artist is marked as unavailable
         const unavailablePattern = `${artistFirstName} is not available....give us a second!`
         const isMarkedUnavailable = updates.some((update: any) =>
