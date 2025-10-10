@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireArtist } from '@/lib/auth'
 import { randomUUID } from 'crypto'
-import { promises as fs } from 'fs'
-import path from 'path'
+import { createClient } from '@supabase/supabase-js'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
+
+const BUCKET = process.env.SUPABASE_STORAGE_BUCKET || 'profiles'
 
 export async function POST(request: NextRequest) {
   try {
@@ -26,26 +27,44 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid file type' }, { status: 400 })
     }
 
+    const SUPABASE_URL = process.env.SUPABASE_URL
+    const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      return NextResponse.json({ error: 'Supabase credentials not configured' }, { status: 500 })
+    }
+
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+
+    // Ensure bucket exists (idempotent)
+    // If bucket already exists, Supabase will return 409; we ignore that.
+    await supabase.storage.createBucket(BUCKET, { public: true }).catch(() => {})
+
     const bytes = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
-
-    // Ensure uploads dir exists
-    const uploadsDir = path.join(process.cwd(), 'public', 'uploads')
-    await fs.mkdir(uploadsDir, { recursive: true })
-
-    // Save file
     const ext = file.type.split('/')[1] || 'png'
-    const filename = `${randomUUID()}.${ext}`
-    const filePath = path.join(uploadsDir, filename)
-    await fs.writeFile(filePath, buffer)
+    const path = `${user.id}/${randomUUID()}.${ext}`
 
-    // Build public URL path
-    const publicPath = `/uploads/${filename}`
+    const { error: uploadError } = await supabase.storage
+      .from(BUCKET)
+      .upload(path, buffer, {
+        contentType: file.type,
+        upsert: true,
+      })
 
-    // Update artist profile picture
+    if (uploadError) {
+      console.error('Supabase upload error:', uploadError)
+      return NextResponse.json({ error: 'Failed to upload image' }, { status: 500 })
+    }
+
+    // Get public URL (bucket marked public above). If private, we could generate a signed URL instead.
+    const { data: publicData } = await supabase.storage.from(BUCKET).getPublicUrl(path)
+    const publicUrl = publicData.publicUrl
+
+    // Update artist profile picture URL in DB
     const artist = await prisma.artist.update({
       where: { userId: user.id },
-      data: { profilePicture: publicPath },
+      data: { profilePicture: publicUrl },
     })
 
     await logAudit({
@@ -53,10 +72,10 @@ export async function POST(request: NextRequest) {
       action: 'ARTIST_UPLOAD_PROFILE_PICTURE',
       entityType: 'ARTIST',
       entityId: artist.id,
-      details: { path: publicPath, mime: file.type, size: buffer.length },
+      details: { url: publicUrl, mime: file.type, size: buffer.length },
     })
 
-    return NextResponse.json({ success: true, path: publicPath })
+    return NextResponse.json({ success: true, url: publicUrl })
   } catch (error: any) {
     if (error instanceof Error && (error.message === 'Unauthorized' || error.message.startsWith('Forbidden'))) {
       return NextResponse.json({ error: error.message }, { status: error.message === 'Unauthorized' ? 401 : 403 })
