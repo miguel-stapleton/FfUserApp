@@ -1,10 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  experimental: {
-    appDir: true,
-  },
   images: {
-    domains: ['localhost', 'images.squarespace-cdn.com'],
+    domains: [
+      'localhost',
+      'images.squarespace-cdn.com',
+      // Supabase Storage public URLs
+      'gxuxddgafphasrfecfmo.supabase.co',
+    ],
   },
 }
 
