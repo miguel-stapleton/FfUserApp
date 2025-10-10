@@ -62,7 +62,7 @@ function LoginContent() {
           if (userData.user?.role === 'ARTIST') {
             router.push('/(artist)/get-clients')
           } else if (userData.user?.role === 'BACKOFFICE') {
-            router.push('/(backoffice)/proposals')
+            router.push('/(artist)/get-clients')
           } else {
             // Fallback redirect
             router.push('/')

@@ -17,13 +17,11 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: '/icon-144x144.png', sizes: '144x144', type: 'image/png' },
-      { url: '/icon-192x192.png', sizes: '192x192', type: 'image/png' },
-      { url: '/icon-512x512.png', sizes: '512x512', type: 'image/png' },
+      { url: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icon-512.png', sizes: '512x512', type: 'image/png' },
     ],
     apple: [
-      { url: '/icon-152x152.png', sizes: '152x152', type: 'image/png' },
-      { url: '/icon-192x192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/apple-touch-icon-180.png', sizes: '180x180', type: 'image/png' },
     ],
   },
 }
@@ -41,7 +39,7 @@ export default function RootLayout({
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="Fresh Faced" />
-        <link rel="apple-touch-icon" href="/icon-192x192.png" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon-180.png" />
       </head>
       <body className={inter.className}>
         <div className="min-h-screen bg-background">
