@@ -224,6 +224,11 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
     let cursor: string | null = null
     let hasMore = true
 
+    // Choose the correct board based on artist type (fallback to MONDAY_BOARD_ID)
+    const boardIdToUse = artist.type === 'MUA'
+      ? (MONDAY_MUA_BOARD_ID || MONDAY_BOARD_ID)
+      : (MONDAY_HS_BOARD_ID || MONDAY_BOARD_ID)
+
     while (hasMore) {
       const clientsQuery = `
         query GetBoardItems($boardId: ID!, $cursor: String) {
@@ -251,7 +256,7 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
         MONDAY_API_URL,
         {
           query: clientsQuery,
-          variables: { boardId: MONDAY_BOARD_ID, cursor },
+          variables: { boardId: boardIdToUse, cursor },
         },
         {
           headers: {
@@ -303,12 +308,23 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
         status = hStatusCol?.text
       }
 
-      // Skip if status is not one of the three target statuses
-      if (!status || ![
-        'Travelling fee + inquire the artist',
-        'undecided- inquire availabilities',
-        'inquire second option'
-      ].includes(status)) {
+      // Robust matching for status (normalize case and dashes)
+      const norm = (s?: string) => (s || '')
+        .toLowerCase()
+        .replace(/[\u2013\u2014]/g, '-') // en/em dash -> hyphen
+        .replace(/\s+/g, ' ') // collapse spaces
+        .trim()
+
+      const statusNorm = norm(status)
+      const targets = [
+        'travelling fee + inquire the artist',
+        'undecided- inquire availabilities', // hyphen version
+        'undecided - inquire availabilities', // with spaces
+        'inquire second option',
+      ].map(norm)
+
+      // Skip if status is not one of the target statuses
+      if (!status || !targets.includes(statusNorm)) {
         continue
       }
 
@@ -321,17 +337,17 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
       let shouldInclude = false
 
       // Apply filtering logic based on status
-      if (status === 'Travelling fee + inquire the artist') {
+      if (statusNorm === 'travelling fee + inquire the artist') {
         // Check if whatsapp pattern exists in updates
         if (whatsappPattern) {
           shouldInclude = updates.some((update: any) => 
             update.text_body?.includes(whatsappPattern)
           )
         }
-      } else if (status === 'undecided- inquire availabilities') {
+      } else if (statusNorm === 'undecided- inquire availabilities') {
         // Show all
         shouldInclude = true
-      } else if (status === 'inquire second option') {
+      } else if (statusNorm === 'inquire second option') {
         // Exclude if artist is marked as unavailable
         const unavailablePattern = `${artistFirstName} is not available....give us a second!`
         const isMarkedUnavailable = updates.some((update: any) =>
