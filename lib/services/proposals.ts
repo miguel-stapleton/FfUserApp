@@ -15,6 +15,8 @@ const MONDAY_API_TOKEN = process.env.MONDAY_API_TOKEN
 const MONDAY_BOARD_ID = process.env.MONDAY_BOARD_ID
 const MONDAY_MUA_BOARD_ID = process.env.MONDAY_MUA_BOARD_ID
 const MONDAY_HS_BOARD_ID = process.env.MONDAY_HS_BOARD_ID
+const MONDAY_MSTATUS_COLUMN_ID = process.env.MONDAY_MSTATUS_COLUMN_ID || 'project_status'
+const MONDAY_HSTATUS_COLUMN_ID = process.env.MONDAY_HSTATUS_COLUMN_ID || 'dup__of_mstatus'
 
 // Artist name mappings for "copy paste para whatsapp" patterns
 const WHATSAPP_PATTERNS: Record<string, string> = {
@@ -299,13 +301,31 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
       // ONLY check the status column that matches the artist's service type
       let status: string | undefined
       if (artist.type === 'MUA') {
-        // MUA artists ONLY look at Mstatus (project_status)
-        const mStatusCol = columnValues.find((col: any) => col.id === 'project_status')
+        // Prefer env-provided MUA status column id, fallback to common titles
+        let mStatusCol = columnValues.find((col: any) => col.id === MONDAY_MSTATUS_COLUMN_ID)
+        if (!mStatusCol) {
+          mStatusCol = columnValues.find((col: any) =>
+            col.id === 'project_status' ||
+            col.title?.toLowerCase().includes('mstatus') ||
+            col.title?.toLowerCase().includes('status')
+          )
+        }
         status = mStatusCol?.text
       } else {
-        // HS artists ONLY look at Hstatus (dup__of_mstatus)
-        const hStatusCol = columnValues.find((col: any) => col.id === 'dup__of_mstatus')
+        // Prefer env-provided HS status column id, fallback to common titles
+        let hStatusCol = columnValues.find((col: any) => col.id === MONDAY_HSTATUS_COLUMN_ID)
+        if (!hStatusCol) {
+          hStatusCol = columnValues.find((col: any) =>
+            col.id === 'dup__of_mstatus' ||
+            col.title?.toLowerCase().includes('hstatus') ||
+            col.title?.toLowerCase().includes('status')
+          )
+        }
         status = hStatusCol?.text
+      }
+
+      if (!status) {
+        console.log('No status found for item:', item.id, 'Available columns:', columnValues.map((c:any)=>`${c.id}:${c.text}`).slice(0,10))
       }
 
       // Robust matching for status (normalize case and dashes)
