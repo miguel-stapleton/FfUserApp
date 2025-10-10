@@ -8,7 +8,7 @@ export const runtime = 'nodejs'
 
 const MONDAY_API_URL = 'https://api.monday.com/v2'
 const MONDAY_API_TOKEN = process.env.MONDAY_API_TOKEN
-const MONDAY_CLIENTS_BOARD_ID = process.env.MONDAY_BOARD_ID // 6760292
+const MONDAY_CLIENTS_BOARD_ID = process.env.MONDAY_CLIENTS_BOARD_ID || process.env.MONDAY_BOARD_ID // Clients board
 const MONDAY_POLLS_BOARD_ID = '1952175468'
 
 // Map artist emails to their Polls board column IDs
@@ -549,6 +549,87 @@ export async function POST(request: NextRequest) {
       }
     } else {
       console.log('Status does not match - skipping Polls board update')
+    }
+
+    // ===============================
+    // Persist response locally so it won't reappear on refresh
+    // ===============================
+    const { prisma } = await import('@/lib/prisma')
+
+    // 1) Upsert a ClientService for this Monday client item
+    //    Extract a few fields from the already-fetched clientItem
+    const getCol = (id: string) => clientItem.column_values.find((c: any) => c.id === id)?.text || null
+    const bridesName = getCol('short_text8') || 'Client'
+    const weddingDateText = getCol('date6')
+    const beautyVenue = getCol('short_text1') || ''
+    const description = getCol('long_text4') || ''
+
+    let clientService = await prisma.clientService.findFirst({
+      where: {
+        mondayClientItemId: proposalId,
+        service: artist.type as any,
+      },
+    })
+
+    if (!clientService) {
+      clientService = await prisma.clientService.create({
+        data: {
+          mondayClientItemId: proposalId,
+          service: artist.type as any, // 'MUA' | 'HS'
+          bridesName: bridesName,
+          weddingDate: weddingDateText ? new Date(weddingDateText) : new Date(),
+          beautyVenue,
+          description,
+          currentStatus: status || null,
+        },
+      })
+    }
+
+    // 2) Ensure there is an open ProposalBatch for this ClientService
+    let batch = await prisma.proposalBatch.findFirst({
+      where: { clientServiceId: clientService.id, state: 'OPEN' as any },
+    })
+
+    if (!batch) {
+      batch = await prisma.proposalBatch.create({
+        data: {
+          clientServiceId: clientService.id,
+          mode: 'BROADCAST' as any,
+          startReason: 'UNDECIDED' as any,
+          deadlineAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          state: 'OPEN' as any,
+        },
+      })
+    }
+
+    // 3) Upsert a Proposal for this artist and set the response
+    //    Unique constraint is on [proposalBatchId, artistId]
+    const artistRecord = await prisma.artist.findUnique({
+      where: { userId: user.id },
+      select: { id: true },
+    })
+
+    if (artistRecord) {
+      const existing = await prisma.proposal.findFirst({
+        where: { proposalBatchId: batch.id, artistId: artistRecord.id },
+      })
+
+      if (!existing) {
+        await prisma.proposal.create({
+          data: {
+            proposalBatchId: batch.id,
+            clientServiceId: clientService.id,
+            artistId: artistRecord.id,
+            response: response as any,
+            respondedAt: new Date(),
+          },
+        })
+      } else if (!existing.response) {
+        await prisma.proposal.update({
+          where: { id: existing.id },
+          data: { response: response as any, respondedAt: new Date() },
+        })
+      }
     }
 
     console.log('=== END PROPOSAL RESPONSE DEBUG ===\n')

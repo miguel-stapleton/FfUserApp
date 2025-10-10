@@ -339,6 +339,12 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
         continue
       }
 
+      // Skip if artist has already responded to this client (persisted in DB)
+      if (respondedClientIds.has(item.id)) {
+        console.log('Skipping client (already responded):', brideName, 'Item ID:', item.id)
+        continue
+      }
+
       let shouldInclude = false
 
       // Apply filtering logic based on status
