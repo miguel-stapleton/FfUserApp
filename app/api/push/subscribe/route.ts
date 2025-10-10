@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { prisma } from '@/lib/prisma'
 import { verifyToken, getAuthCookie } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
@@ -35,6 +34,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { endpoint, p256dh, auth } = subscriptionSchema.parse(body)
 
+    const { prisma } = await import('@/lib/prisma')
     // Upsert the push subscription
     await prisma.pushSubscription.upsert({
       where: {
@@ -101,6 +101,7 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
+    const { prisma } = await import('@/lib/prisma')
     // Delete the push subscription
     await prisma.pushSubscription.delete({
       where: {

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+// import { prisma } from '@/lib/prisma'
 import { verifyToken, getAuthCookie } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
 export async function GET(request: NextRequest) {
   try {
@@ -25,6 +26,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Get user with artist data
+    const { prisma } = await import('@/lib/prisma')
     const user = await prisma.user.findUnique({
       where: { id: payload.userId },
       include: {

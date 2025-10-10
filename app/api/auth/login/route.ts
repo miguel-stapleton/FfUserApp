@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import bcrypt from 'bcryptjs'
-import { prisma } from '@/lib/prisma'
+// import { prisma } from '@/lib/prisma'
 import { createToken, setAuthCookie } from '@/lib/auth'
 import { logAudit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
 const loginSchema = z.object({
   emailOrUsername: z.string().min(1),
@@ -17,6 +18,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { emailOrUsername, password } = loginSchema.parse(body)
 
+    const { prisma } = await import('@/lib/prisma')
     // Find user by email or username
     const user = await prisma.user.findFirst({
       where: {
