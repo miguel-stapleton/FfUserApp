@@ -31,6 +31,8 @@ const RESERVED_PATTERNS: Record<string, string> = {
   'Eric': 'Eric reservada',
   'Andreia': 'Andreia reservada',
   'Agne': 'Agne reservada',
+  'Joana': 'Joana reservada',
+  'Olga': 'Olga reservada',
 }
 
 function extractArtistKey(fullName: string): string {
@@ -79,7 +81,7 @@ export async function GET(request: NextRequest) {
     const artistName = artistItem?.name || ''
 
     const artistKey = extractArtistKey(artistName)
-    const reservedPattern = RESERVED_PATTERNS[artistKey] || `${artistKey} reservada`
+    const reservedPattern = (RESERVED_PATTERNS[artistKey] || `${artistKey} reservada`).toLowerCase()
 
     // Fetch all Clients board items via pagination
     let allItems: any[] = []
@@ -131,8 +133,8 @@ export async function GET(request: NextRequest) {
       const status = statusCol?.text
       if (status !== targetStatus) continue
 
-      // Check reserved pattern in updates for this artist
-      const matches = updates.some((u: any) => u.text_body?.includes(reservedPattern))
+      // Case-insensitive reserved pattern check in updates for this artist
+      const matches = updates.some((u: any) => (u.text_body || '').toLowerCase().includes(reservedPattern))
       if (!matches) continue
 
       const brideCol = cols.find((c: any) => c.id === 'short_text8')
