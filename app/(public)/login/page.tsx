@@ -60,9 +60,9 @@ function LoginContent() {
           
           // Role-based redirect
           if (userData.user?.role === 'ARTIST') {
-            router.push('/(artist)/get-clients')
+            router.push('/get-clients')
           } else if (userData.user?.role === 'BACKOFFICE') {
-            router.push('/(artist)/get-clients')
+            router.push('/get-clients')
           } else {
             // Fallback redirect
             router.push('/')
