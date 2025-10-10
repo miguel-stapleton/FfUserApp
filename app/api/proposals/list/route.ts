@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyToken, getAuthCookie } from '@/lib/auth'
-import { getOpenProposalsForArtist } from '@/lib/services/proposals'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -34,6 +33,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Get artist proposals
+    const { getOpenProposalsForArtist } = await import('@/lib/services/proposals')
     const proposals = await getOpenProposalsForArtist(payload.userId)
 
     return NextResponse.json({ proposals })

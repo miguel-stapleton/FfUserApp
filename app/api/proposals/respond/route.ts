@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requireArtist, handleAuthError } from '@/lib/auth'
-import { prisma } from '@/lib/prisma'
 import axios from 'axios'
 
 export const dynamic = 'force-dynamic'
@@ -72,6 +71,7 @@ export async function POST(request: NextRequest) {
   try {
     const user = await requireArtist(request)
 
+    const { prisma } = await import('@/lib/prisma')
     // Get artist record
     const artist = await prisma.artist.findUnique({
       where: { userId: user.id },

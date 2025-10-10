@@ -1,7 +1,6 @@
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from './prisma'
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-key'
 const COOKIE_NAME = 'ff_token'
@@ -59,6 +58,7 @@ export async function getUserFromRequest(request: NextRequest): Promise<AuthUser
       return null
     }
 
+    const { prisma } = await import('./prisma')
     const user = await prisma.user.findUnique({
       where: { id: payload.userId },
       select: {
