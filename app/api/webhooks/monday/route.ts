@@ -8,6 +8,7 @@ import { getClientFromMonday, getArtistByMondayId } from '@/lib/monday'
 import { ServiceType } from '@/lib/types'
 
 export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
 interface MondayWebhookPayload {
   event: {

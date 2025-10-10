@@ -7,11 +7,8 @@ import {
   ProposalResponse, 
   ArtistProposalCard,
   CreateBatchRequest,
-  RespondToProposalRequest,
-  BackofficeRow
+  RespondToProposalRequest
 } from '@/lib/types'
-import { mondayService } from '../monday'
-import { getAllClientsFromMonday } from '../monday'
 
 const MONDAY_API_URL = 'https://api.monday.com/v2'
 const MONDAY_API_TOKEN = process.env.MONDAY_API_TOKEN
@@ -512,107 +509,5 @@ export async function getArtistProposalStats(artistId: string) {
     pendingProposals,
     responseRate: Math.round(responseRate * 100) / 100,
     acceptanceRate: Math.round(acceptanceRate * 100) / 100,
-  }
-}
-
-/**
- * Get all proposals for backoffice dashboard
- */
-export async function getBackofficeProposals(): Promise<BackofficeRow[]> {
-  try {
-    // Fetch live client data from Monday.com
-    const mondayClients = await getAllClientsFromMonday()
-    
-    if (mondayClients.length === 0) {
-      return []
-    }
-
-    // Get all client services that match Monday items
-    const clientServices = await prisma.clientService.findMany({
-      where: {
-        mondayClientItemId: {
-          in: mondayClients.map(client => client.mondayItemId)
-        }
-      },
-      include: {
-        batches: {
-          include: {
-            proposals: {
-              include: {
-                artist: true
-              }
-            }
-          },
-          orderBy: {
-            createdAt: 'desc'
-          }
-        }
-      }
-    })
-
-    // Build the response structure
-    const backofficeRows = mondayClients.map(mondayClient => {
-      const clientService = clientServices.find(cs => cs.mondayClientItemId === mondayClient.mondayItemId)
-      
-      // Get latest batch proposals
-      const latestBatch = clientService?.batches?.[0]
-      const proposals = latestBatch?.proposals || []
-
-      // Group artists by type and tier
-      const muaArtists = proposals
-        .filter(p => p.artist.type === 'MUA')
-        .map(p => ({
-          email: p.artist.email,
-          tier: p.artist.tier,
-          response: p.response,
-          respondedAt: p.respondedAt
-        }))
-
-      const hsArtists = proposals
-        .filter(p => p.artist.type === 'HS')
-        .map(p => ({
-          email: p.artist.email,
-          tier: p.artist.tier,
-          response: p.response,
-          respondedAt: p.respondedAt
-        }))
-
-      // Determine overall status based on batch status
-      let status = 'No Batch'
-      if (latestBatch) {
-        switch (latestBatch.state) {
-          case 'OPEN':
-            status = 'Open'
-            break
-          case 'SENT_OPTIONS':
-            status = 'Sent Options'
-            break
-          case 'NO_AVAILABILITY':
-            status = 'No Availability'
-            break
-          case 'EXPIRED_NO_ACTION':
-            status = 'Expired'
-            break
-          default:
-            status = 'Unknown'
-        }
-      }
-
-      return {
-        mondayClientItemId: mondayClient.mondayItemId,
-        clientName: mondayClient.name,
-        eventDate: mondayClient.eventDate.toISOString(),
-        beautyVenue: mondayClient.beautyVenue,
-        mStatus: mondayClient.mStatus,
-        status,
-        muaArtists,
-        hsArtists
-      }
-    })
-
-    return backofficeRows
-  } catch (error) {
-    console.error('Error fetching backoffice proposals:', error)
-    throw new Error('Failed to fetch backoffice proposals')
   }
 }

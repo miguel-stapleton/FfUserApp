@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { verifyToken, getAuthCookie } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
 const subscriptionSchema = z.object({
   endpoint: z.string().url(),

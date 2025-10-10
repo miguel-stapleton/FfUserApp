@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 import axios from 'axios'
 
 export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
 const MONDAY_API_URL = 'https://api.monday.com/v2'
 const MONDAY_API_TOKEN = process.env.MONDAY_API_TOKEN

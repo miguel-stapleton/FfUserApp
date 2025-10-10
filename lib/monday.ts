@@ -204,7 +204,17 @@ export class MondayService {
   }
 }
 
-export const mondayService = new MondayService()
+// Lazy getter to avoid throwing at import time
+let mondayServiceInstance: MondayService | null = null
+export function getMondayService(): MondayService {
+  if (!mondayServiceInstance) {
+    mondayServiceInstance = new MondayService()
+  }
+  return mondayServiceInstance
+}
+
+// Note: Avoid creating a singleton at module import time to prevent build-time errors.
+// Use getMondayService() to access an instance when needed.
 
 // Standalone functions for compatibility
 export async function findArtistByEmail(email: string): Promise<MondayArtist | null> {
@@ -515,5 +525,11 @@ export async function getAllClientsFromMonday(): Promise<MondayClient[]> {
 }
 
 export async function setEmailAutomation(itemId: string, automationType: 'Send options' | 'Send no availability'): Promise<boolean> {
-  return await mondayService.setEmailAutomation(itemId, automationType)
+  try {
+    const service = getMondayService()
+    return await service.setEmailAutomation(itemId, automationType)
+  } catch (error) {
+    console.error('Failed to set email automation via helper:', error)
+    return false
+  }
 }
