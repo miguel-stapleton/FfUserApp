@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { upsertClientServiceFromMonday } from '@/lib/services/clients'
 import { createBatchAndProposals } from '@/lib/services/proposals'
 import { logAudit } from '@/lib/audit'
-import { sendNewProposalNotification } from '@/lib/push'
+import { sendNewProposalNotification, sendPushToArtistsByType } from '@/lib/push'
 import { getClientFromMonday, getArtistByMondayId } from '@/lib/monday'
 import { ServiceType } from '@/lib/types'
 
@@ -69,7 +69,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, message: 'Event type not handled' })
     }
 
-    const { itemId, columnId, value, previousValue } = event
+    // Some Monday recipes send itemId as pulseId/item_id
+    const rawItemId: any = (event as any).itemId ?? (event as any).pulseId ?? (event as any).item_id ?? (event as any).pulse_id
+    const itemId: number | undefined = typeof rawItemId === 'string' || typeof rawItemId === 'number' ? Number(rawItemId) : undefined
+    const { columnId } = event as any
+
+    // Parse value/previousValue when Monday sends JSON strings
+    const parseValue = (v: any) => {
+      try {
+        if (typeof v === 'string') return JSON.parse(v)
+      } catch {}
+      return v
+    }
+    const value = parseValue((event as any).value)
+    const previousValue = parseValue((event as any).previousValue)
 
     // Validate env configuration and log if missing
     const M_COL = process.env.MONDAY_MSTATUS_COLUMN_ID
@@ -79,11 +92,24 @@ export async function POST(request: NextRequest) {
     }
 
     // Extract status texts and normalize
-    const newStatus = normalizeStatus(value?.label?.text || value?.text || '')
-    const oldStatus = normalizeStatus(previousValue?.label?.text || previousValue?.text || '')
+    const newStatus = normalizeStatus(value?.label?.text || value?.text || value?.label || '')
+    const oldStatus = normalizeStatus(previousValue?.label?.text || previousValue?.text || previousValue?.label || '')
 
     // Handle Mstatus changes (MUA services)
     if (columnId === M_COL) {
+      // If we have no itemId, send a generic broadcast push to MUA and exit early
+      if (!itemId) {
+        console.warn('[monday:webhook] Missing itemId/pulseId in event. Sending broadcast push without batch creation (MUA).')
+        await sendPushToArtistsByType('MUA', {
+          title: 'New Proposal Available',
+          body: 'A new client needs availability (MUA).',
+          icon: '/icon-192.png',
+          badge: '/icon-192.png',
+          url: '/(artist)/get-clients',
+          data: { type: 'new_proposal' },
+        })
+        return NextResponse.json({ success: true, note: 'Broadcast sent without itemId' })
+      }
       await handleStatusChange(
         itemId.toString(),
         'MUA',
@@ -95,6 +121,18 @@ export async function POST(request: NextRequest) {
 
     // Handle Hstatus changes (HS services)
     if (columnId === H_COL) {
+      if (!itemId) {
+        console.warn('[monday:webhook] Missing itemId/pulseId in event. Sending broadcast push without batch creation (HS).')
+        await sendPushToArtistsByType('HS', {
+          title: 'New Proposal Available',
+          body: 'A new client needs availability (HS).',
+          icon: '/icon-192.png',
+          badge: '/icon-192.png',
+          url: '/(artist)/get-clients',
+          data: { type: 'new_proposal' },
+        })
+        return NextResponse.json({ success: true, note: 'Broadcast sent without itemId' })
+      }
       await handleStatusChange(
         itemId.toString(),
         'HS',
