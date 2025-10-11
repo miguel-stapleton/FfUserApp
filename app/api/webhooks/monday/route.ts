@@ -36,9 +36,11 @@ function normalizeStatus(s: string | undefined | null) {
 
 const TARGET_UNDECIDED = normalizeStatus('undecided – inquire availabilities')
 const TARGET_TRAVELLING = normalizeStatus('Travelling fee + inquire the artist')
+const WEBHOOK_VERSION = 'monday-webhook-v3-2025-10-11-12:56'
 
 export async function POST(request: NextRequest) {
   try {
+    console.log('[monday:webhook:version]', WEBHOOK_VERSION)
     const body: MondayWebhookPayload = await request.json()
 
     // Handle Monday.com challenge for webhook verification
