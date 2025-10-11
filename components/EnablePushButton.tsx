@@ -34,8 +34,15 @@ export default function EnablePushButton() {
         throw new Error('Missing NEXT_PUBLIC_VAPID_PUBLIC_KEY')
       }
 
+      // Preflight: ensure /sw.js is available on this deployment
+      const swUrl = '/sw.js'
+      const swResp = await fetch(swUrl, { cache: 'no-store' })
+      if (!swResp.ok) {
+        throw new Error('Service worker not found at /sw.js. Redeploy with public/sw.js present.')
+      }
+
       // Register the service worker (must be at /sw.js)
-      const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' })
+      const reg = await navigator.serviceWorker.register(swUrl, { scope: '/' })
 
       // Request permission (must be user-initiated)
       const perm = await Notification.requestPermission()
@@ -83,14 +90,18 @@ export default function EnablePushButton() {
   if (!supported || status === 'done') return null
 
   return (
-    <button
-      onClick={enablePush}
-      className="inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded-md bg-pink-600 hover:bg-pink-700 text-white"
-      disabled={status === 'working'}
-      title="Enable notifications"
-    >
-      {status === 'working' ? 'Enabling…' : 'Enable notifications'}
-      {message && <span className="ml-2 text-xs opacity-90">{message}</span>}
-    </button>
+    <div className="flex items-center gap-2">
+      <button
+        onClick={enablePush}
+        className="inline-flex items-center px-2 py-1 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-50"
+        disabled={status === 'working'}
+        title="Enable notifications"
+      >
+        {status === 'working' ? 'Enabling…' : 'Enable notifications'}
+      </button>
+      {message && (
+        <span className="text-[11px] text-gray-500">{message}</span>
+      )}
+    </div>
   )
 }
