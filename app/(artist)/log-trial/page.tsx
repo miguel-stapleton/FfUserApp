@@ -22,6 +22,11 @@ export default function LogTrialPage() {
   const [fetchingClients, setFetchingClients] = useState(true)
   const [bookedClients, setBookedClients] = useState<BookedClient[]>([])
   const [selectedClientId, setSelectedClientId] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+
+  // Derive the selected client's current trial date (if any)
+  const selectedClient = bookedClients.find(c => c.mondayItemId === selectedClientId) as (BookedClient & { trialDate?: string }) | undefined
 
   useEffect(() => {
     fetchBookedClients()
@@ -51,10 +56,34 @@ export default function LogTrialPage() {
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setLoading(true)
-    
-    // TODO: Implement trial logging logic
-    
-    setLoading(false)
+    setError(null)
+    setSuccess(null)
+
+    try {
+      const formData = new FormData(e.currentTarget)
+      const trialDate = String(formData.get('trialDate') || '')
+
+      const res = await fetch('/api/artist/log-trial', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ clientId: selectedClientId, trialDate }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Failed to log trial')
+      }
+
+      setSuccess('Trial logged successfully')
+      // Optionally navigate back after a short delay
+      setTimeout(() => router.push('/get-clients'), 800)
+    } catch (err) {
+      console.error('Log trial failed:', err)
+      setError(err instanceof Error ? err.message : 'Failed to log trial')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -108,6 +137,16 @@ export default function LogTrialPage() {
                 </div>
               ) : (
                 <form onSubmit={handleSubmit} className="space-y-6">
+                  {error && (
+                    <div className="p-3 border border-red-200 bg-red-50 text-red-700 rounded">
+                      {error}
+                    </div>
+                  )}
+                  {success && (
+                    <div className="p-3 border border-green-200 bg-green-50 text-green-700 rounded">
+                      {success}
+                    </div>
+                  )}
                   <div className="space-y-2">
                     <Label htmlFor="clientId">Bride's Name</Label>
                     <Select
@@ -134,15 +173,13 @@ export default function LogTrialPage() {
                       type="date"
                       required
                     />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="notes">Notes (Optional)</Label>
-                    <Input
-                      id="notes"
-                      name="notes"
-                      placeholder="Add any notes about the trial session"
-                    />
+                    {selectedClientId && (
+                      <p className="text-sm text-gray-500">
+                        {selectedClient?.trialDate
+                          ? `currently set to: ${selectedClient.trialDate}`
+                          : 'No trial date yet'}
+                      </p>
+                    )}
                   </div>
 
                   <div className="flex gap-3 pt-4">
@@ -156,7 +193,7 @@ export default function LogTrialPage() {
                     </Button>
                     <Button
                       type="submit"
-                      disabled={loading}
+                      disabled={loading || !selectedClientId}
                       className="flex-1 bg-pink-600 hover:bg-pink-700"
                     >
                       {loading ? 'Saving...' : 'Log Trial'}

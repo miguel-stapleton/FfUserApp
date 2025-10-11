@@ -79,6 +79,7 @@ model Artist {
   createdAt     DateTime    @default(now())
 
   proposals Proposal[]
+  trials    Trial[]
 
   @@index([type, active])
 }
@@ -98,6 +99,7 @@ model ClientService {
   batches   ProposalBatch[]
   proposals Proposal[]
   auditLogs AuditLog[] @relation("ClientServiceAuditLogs")
+  trials    Trial[]
 
   @@index([mondayClientItemId, service])
 }
@@ -154,4 +156,19 @@ model PushSubscription {
   p256dh    String
   auth      String
   createdAt DateTime @default(now())
+}
+
+model Trial {
+  id              String   @id @default(cuid())
+  clientServiceId String
+  artistId        String
+  trialDate       DateTime
+  notes           String?
+  createdAt       DateTime @default(now())
+
+  clientService   ClientService @relation(fields: [clientServiceId], references: [id])
+  artist          Artist        @relation(fields: [artistId], references: [id])
+
+  @@index([artistId, trialDate])
+  @@index([clientServiceId])
 }

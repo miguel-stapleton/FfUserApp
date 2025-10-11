@@ -243,6 +243,7 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
                 column_values {
                   id
                   text
+                  value
                 }
                 updates {
                   id
@@ -310,7 +311,15 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
             col.title?.toLowerCase().includes('status')
           )
         }
-        status = mStatusCol?.text
+        if (mStatusCol) {
+          status = mStatusCol.text
+          if ((!status || status.length === 0) && mStatusCol.value) {
+            try {
+              const parsed = JSON.parse(mStatusCol.value)
+              status = parsed?.label || status
+            } catch {}
+          }
+        }
       } else {
         // Prefer env-provided HS status column id, fallback to common titles
         let hStatusCol = columnValues.find((col: any) => col.id === MONDAY_HSTATUS_COLUMN_ID)
@@ -321,7 +330,15 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
             col.title?.toLowerCase().includes('status')
           )
         }
-        status = hStatusCol?.text
+        if (hStatusCol) {
+          status = hStatusCol.text
+          if ((!status || status.length === 0) && hStatusCol.value) {
+            try {
+              const parsed = JSON.parse(hStatusCol.value)
+              status = parsed?.label || status
+            } catch {}
+          }
+        }
       }
 
       if (!status) {
