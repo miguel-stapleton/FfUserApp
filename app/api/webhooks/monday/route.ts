@@ -93,11 +93,25 @@ export async function POST(request: NextRequest) {
     const previousValue = parseValue((event as any).previousValue)
 
     // Validate env configuration and log if missing
-    const M_COL = process.env.MONDAY_MSTATUS_COLUMN_ID
-    const H_COL = process.env.MONDAY_HSTATUS_COLUMN_ID
+    const M_COL = process.env.MONDAY_MSTATUS_COLUMN_ID?.trim()
+    const H_COL = process.env.MONDAY_HSTATUS_COLUMN_ID?.trim()
     if (!M_COL || !H_COL) {
       console.warn('[monday:webhook] Missing MONDAY_MSTATUS_COLUMN_ID or MONDAY_HSTATUS_COLUMN_ID env in this environment')
     }
+
+    // Visibility: show matching decisions
+    console.log('[monday:webhook:match]', {
+      columnId,
+      M_COL,
+      H_COL,
+      isMcol: columnId === M_COL,
+      isHcol: columnId === H_COL,
+      newStatus: normalizeStatus(value?.label?.text || value?.text || value?.label || ''),
+      TARGET_UNDECIDED,
+      statusMatchesUndecided: normalizeStatus(value?.label?.text || value?.text || value?.label || '') === TARGET_UNDECIDED,
+      TARGET_TRAVELLING,
+      statusMatchesTravelling: normalizeStatus(value?.label?.text || value?.text || value?.label || '') === TARGET_TRAVELLING,
+    })
 
     // Extract status texts and normalize
     const newStatus = normalizeStatus(value?.label?.text || value?.text || value?.label || '')
