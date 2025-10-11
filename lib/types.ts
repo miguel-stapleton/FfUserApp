@@ -6,7 +6,13 @@ export type ServiceType = 'WEDDING' | 'ENGAGEMENT' | 'BRIDAL_PARTY' | 'OTHER'
 export type ProposalResponse = 'YES' | 'NO'
 export type ProposalBatchMode = 'SINGLE' | 'BROADCAST'
 export type ProposalBatchState = 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED'
-export type BatchStartReason = 'MANUAL' | 'SCHEDULED' | 'AUTO_RETRY'
+// Align with Prisma enum and keep older values for compatibility
+export type BatchStartReason =
+  | 'UNDECIDED'
+  | 'CHOSEN_NO'
+  | 'MANUAL'
+  | 'SCHEDULED'
+  | 'AUTO_RETRY'
 
 // Base Prisma model types
 export interface User {
