@@ -56,7 +56,10 @@ export async function POST(request: NextRequest) {
       console.log('[monday:webhook]', {
         type: event?.type,
         boardId: event?.boardId,
-        itemId: event?.itemId,
+        itemId: (event as any)?.itemId,
+        pulseId: (event as any)?.pulseId,
+        item_id: (event as any)?.item_id,
+        pulse_id: (event as any)?.pulse_id,
         columnId: event?.columnId,
         valueText,
         previousText: prevText,
@@ -100,6 +103,11 @@ export async function POST(request: NextRequest) {
       // If we have no itemId, send a generic broadcast push to MUA and exit early
       if (!itemId) {
         console.warn('[monday:webhook] Missing itemId/pulseId in event. Sending broadcast push without batch creation (MUA).')
+        // Log target count for visibility
+        try {
+          const targets = await prisma.artist.count({ where: { type: 'MUA', active: true } })
+          console.log(`[monday:webhook] Broadcast MUA targets: ${targets}`)
+        } catch {}
         await sendPushToArtistsByType('MUA', {
           title: 'New Proposal Available',
           body: 'A new client needs availability (MUA).',
@@ -123,6 +131,11 @@ export async function POST(request: NextRequest) {
     if (columnId === H_COL) {
       if (!itemId) {
         console.warn('[monday:webhook] Missing itemId/pulseId in event. Sending broadcast push without batch creation (HS).')
+        // Log target count for visibility
+        try {
+          const targets = await prisma.artist.count({ where: { type: 'HS', active: true } })
+          console.log(`[monday:webhook] Broadcast HS targets: ${targets}`)
+        } catch {}
         await sendPushToArtistsByType('HS', {
           title: 'New Proposal Available',
           body: 'A new client needs availability (HS).',
