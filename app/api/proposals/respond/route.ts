@@ -554,7 +554,7 @@ export async function POST(request: NextRequest) {
     // ===============================
     // Persist response locally so it won't reappear on refresh
     // ===============================
-    const { prisma } = await import('@/lib/prisma')
+    // Using `prisma` imported earlier in this handler
 
     // 1) Upsert a ClientService for this Monday client item
     //    Extract a few fields from the already-fetched clientItem
