@@ -22,6 +22,21 @@ interface MondayWebhookPayload {
   challenge?: string
 }
 
+function normalizeStatus(s: string | undefined | null) {
+  if (!s) return ''
+  return s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // strip diacritics
+    .replace(/[\u2013\u2014\-]+/g, '-') // unify dashes (en/em/minus) to '-'
+    .replace(/\s*\-\s*/g, ' - ') // normalize spaces around dash
+    .replace(/\s+/g, ' ') // collapse whitespace
+    .trim()
+}
+
+const TARGET_UNDECIDED = normalizeStatus('undecided – inquire availabilities')
+const TARGET_TRAVELLING = normalizeStatus('Travelling fee + inquire the artist')
+
 export async function POST(request: NextRequest) {
   try {
     const body: MondayWebhookPayload = await request.json()
@@ -34,6 +49,21 @@ export async function POST(request: NextRequest) {
     const { event } = body
     const timestamp = new Date()
 
+    // Helpful logging for debugging webhook payloads
+    try {
+      const valueText = event?.value?.label?.text || event?.value?.text || ''
+      const prevText = event?.previousValue?.label?.text || event?.previousValue?.text || ''
+      console.log('[monday:webhook]', {
+        type: event?.type,
+        boardId: event?.boardId,
+        itemId: event?.itemId,
+        columnId: event?.columnId,
+        valueText,
+        previousText: prevText,
+        normalizedValue: normalizeStatus(valueText),
+      })
+    } catch {}
+
     // Only handle column value changes
     if (event.type !== 'update_column_value') {
       return NextResponse.json({ success: true, message: 'Event type not handled' })
@@ -41,24 +71,35 @@ export async function POST(request: NextRequest) {
 
     const { itemId, columnId, value, previousValue } = event
 
+    // Validate env configuration and log if missing
+    const M_COL = process.env.MONDAY_MSTATUS_COLUMN_ID
+    const H_COL = process.env.MONDAY_HSTATUS_COLUMN_ID
+    if (!M_COL || !H_COL) {
+      console.warn('[monday:webhook] Missing MONDAY_MSTATUS_COLUMN_ID or MONDAY_HSTATUS_COLUMN_ID env in this environment')
+    }
+
+    // Extract status texts and normalize
+    const newStatus = normalizeStatus(value?.label?.text || value?.text || '')
+    const oldStatus = normalizeStatus(previousValue?.label?.text || previousValue?.text || '')
+
     // Handle Mstatus changes (MUA services)
-    if (columnId === process.env.MONDAY_MSTATUS_COLUMN_ID) {
+    if (columnId === M_COL) {
       await handleStatusChange(
         itemId.toString(),
         'MUA',
-        value?.label?.text || value?.text || '',
-        previousValue?.label?.text || previousValue?.text || '',
+        newStatus,
+        oldStatus,
         timestamp
       )
     }
 
     // Handle Hstatus changes (HS services)
-    if (columnId === process.env.MONDAY_HSTATUS_COLUMN_ID) {
+    if (columnId === H_COL) {
       await handleStatusChange(
         itemId.toString(),
         'HS',
-        value?.label?.text || value?.text || '',
-        previousValue?.label?.text || previousValue?.text || '',
+        newStatus,
+        oldStatus,
         timestamp
       )
     }
@@ -83,13 +124,13 @@ async function handleStatusChange(
     // Determine service type enum
     const serviceTypeEnum: ServiceType = serviceType === 'MUA' ? 'WEDDING' : 'WEDDING' // Adjust as needed
 
-    // Handle "undecided – inquire availabilities" status
-    if (newStatus === 'undecided – inquire availabilities') {
+    // Handle "undecided – inquire availabilities" (normalize dashes/spaces)
+    if (newStatus === TARGET_UNDECIDED) {
       await handleUndecidedStatus(mondayItemId, serviceType, serviceTypeEnum, timestamp)
     }
 
-    // Handle "Travelling fee + inquire the artist" status with chosen artist
-    if (newStatus === 'Travelling fee + inquire the artist') {
+    // Handle "Travelling fee + inquire the artist"
+    if (newStatus === TARGET_TRAVELLING) {
       await handleTravellingFeeStatus(mondayItemId, serviceType, serviceTypeEnum, timestamp)
     }
 
@@ -197,6 +238,18 @@ async function handleUndecidedStatus(
       console.error('Failed to send push notifications:', pushError)
       // Don't fail the webhook for push notification errors
     }
+  } else {
+    console.warn('[monday:webhook] getClientFromMonday returned null, sending fallback notification')
+    try {
+      await sendNewProposalNotification(
+        artists.map(a => a.id),
+        'New Client',
+        serviceTypeEnum,
+        null
+      )
+    } catch (pushError) {
+      console.error('Fallback push failed:', pushError)
+    }
   }
 
   console.log(`Created BROADCAST batch ${batchId} for ${proposalCount} ${serviceType} artists`)
@@ -298,6 +351,18 @@ async function handleTravellingFeeStatus(
     } catch (pushError) {
       console.error('Failed to send push notification:', pushError)
       // Don't fail the webhook for push notification errors
+    }
+  } else {
+    console.warn('[monday:webhook] getClientFromMonday returned null (single), sending fallback notification')
+    try {
+      await sendNewProposalNotification(
+        [artist.id],
+        'New Client',
+        serviceTypeEnum,
+        null
+      )
+    } catch (pushError) {
+      console.error('Fallback push failed (single):', pushError)
     }
   }
 

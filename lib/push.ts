@@ -111,7 +111,7 @@ export async function sendNewProposalNotification(
   artistIds: string[],
   clientName: string,
   serviceType: string,
-  eventDate: Date
+  eventDate?: string | Date | null
 ): Promise<void> {
   // Get user IDs for the artists
   const artists = await prisma.artist.findMany({
@@ -125,17 +125,28 @@ export async function sendNewProposalNotification(
 
   const userIds = artists.map(artist => artist.userId)
 
+  // Format event date safely
+  let displayDate = ''
+  if (eventDate) {
+    try {
+      const d = typeof eventDate === 'string' ? new Date(eventDate) : eventDate
+      if (d && !isNaN(d.getTime())) {
+        displayDate = ` on ${d.toLocaleDateString()}`
+      }
+    } catch {}
+  }
+
   const payload: PushNotificationPayload = {
     title: 'New Proposal Available',
-    body: `${clientName} - ${serviceType} on ${eventDate.toLocaleDateString()}`,
+    body: `${clientName} - ${serviceType}${displayDate}`,
     icon: '/icon-192.png',
     badge: '/icon-192.png',
-    url: '/(artist)',
+    url: '/(artist)/get-clients',
     data: {
       type: 'new_proposal',
       clientName,
       serviceType,
-      eventDate: eventDate.toISOString(),
+      eventDate: eventDate ? (typeof eventDate === 'string' ? eventDate : eventDate.toISOString()) : null,
     },
   }
 
