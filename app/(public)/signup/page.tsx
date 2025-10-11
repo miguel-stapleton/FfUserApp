@@ -57,9 +57,18 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-pink-50 to-rose-100 p-4">
-      <div className="w-full max-w-md">
-        <Card className="shadow-lg border-0 bg-white/95 backdrop-blur">
+    <div className="min-h-screen flex items-center justify-center bg-[#FFF1E6] p-4">
+      <div className="w-full max-w-md mx-auto flex flex-col items-center gap-6">
+        {/* Logo above the auth card */}
+        <img
+          src="https://images.squarespace-cdn.com/content/v1/5c8c244bd7819e19909fe312/d7c9e4cc-7df2-402f-9df5-d97f7f967934/logo.png?format=2500w"
+          alt="Fresh Faced logo"
+          className="h-16 w-auto"
+          loading="eager"
+          decoding="async"
+        />
+
+        <Card className="shadow-lg border-0 bg-white/95 backdrop-blur w-full">
           <CardHeader className="text-center space-y-2">
             <CardTitle className="text-2xl font-bold text-gray-900">
               Join Fresh Faced
