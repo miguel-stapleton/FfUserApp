@@ -75,7 +75,8 @@ function normalizeDiacritics(s: string) {
   return s
     .toLowerCase()
     .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '')
+    // Remove combining diacritical marks (works without ES2018 Unicode property escapes)
+    .replace(/[\u0300-\u036f]/g, '')
 }
 
 function normalizeSpaces(s: string) {
