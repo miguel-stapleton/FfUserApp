@@ -2,6 +2,9 @@ import webpush from 'web-push'
 import { prisma } from './prisma'
 
 // Configure web-push with VAPID keys
+if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
+  console.warn('[push] VAPID keys are missing. Push sends will fail until set.')
+}
 webpush.setVapidDetails(
   'mailto:' + (process.env.VAPID_EMAIL || 'admin@freshfaced.com'),
   process.env.VAPID_PUBLIC_KEY || '',
@@ -125,8 +128,8 @@ export async function sendNewProposalNotification(
   const payload: PushNotificationPayload = {
     title: 'New Proposal Available',
     body: `${clientName} - ${serviceType} on ${eventDate.toLocaleDateString()}`,
-    icon: '/icon-192x192.png',
-    badge: '/badge-72x72.png',
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
     url: '/(artist)',
     data: {
       type: 'new_proposal',

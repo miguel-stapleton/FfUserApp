@@ -5,6 +5,7 @@ import { ChevronDown, User, Lock, LogOut } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import EnablePushButton from './EnablePushButton'
+import TestPushButton from './TestPushButton'
 
 interface ArtistHeaderProps {
   artistName?: string
@@ -80,8 +81,9 @@ export function ArtistHeader({ artistName }: ArtistHeaderProps) {
           </div>
 
           {/* Right actions */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <EnablePushButton />
+            <TestPushButton />
             <div className="relative" ref={dropdownRef}>
               <button
                 onClick={() => setIsDropdownOpen(!isDropdownOpen)}
