@@ -105,7 +105,7 @@ export async function GET(request: NextRequest) {
     `
 
     while (hasMore) {
-      const resp = await axios.post(
+      const resp: any = await axios.post(
         MONDAY_API_URL,
         { query: clientsQuery, variables: { boardId: MONDAY_CLIENTS_BOARD_ID, cursor } },
         { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
