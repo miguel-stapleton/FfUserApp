@@ -77,6 +77,9 @@ export async function POST(request: NextRequest) {
     const itemId: number | undefined = typeof rawItemId === 'string' || typeof rawItemId === 'number' ? Number(rawItemId) : undefined
     const { columnId } = event as any
 
+    // Extra visibility logs
+    console.log('[monday:webhook:id]', { rawItemId, computedItemId: itemId, columnId })
+
     // Parse value/previousValue when Monday sends JSON strings
     const parseValue = (v: any) => {
       try {
@@ -106,8 +109,10 @@ export async function POST(request: NextRequest) {
         // Log target count for visibility
         try {
           const targets = await prisma.artist.count({ where: { type: 'MUA', active: true } })
-          console.log(`[monday:webhook] Broadcast MUA targets: ${targets}`)
-        } catch {}
+          console.log('[monday:webhook:broadcast]', { service: 'MUA', targets })
+        } catch (e) {
+          console.warn('[monday:webhook:broadcast] Failed to count MUA targets', e)
+        }
         await sendPushToArtistsByType('MUA', {
           title: 'New Proposal Available',
           body: 'A new client needs availability (MUA).',
@@ -116,7 +121,7 @@ export async function POST(request: NextRequest) {
           url: '/(artist)/get-clients',
           data: { type: 'new_proposal' },
         })
-        return NextResponse.json({ success: true, note: 'Broadcast sent without itemId' })
+        return NextResponse.json({ success: true, note: 'Broadcast sent without itemId (MUA)' })
       }
       await handleStatusChange(
         itemId.toString(),
@@ -134,8 +139,10 @@ export async function POST(request: NextRequest) {
         // Log target count for visibility
         try {
           const targets = await prisma.artist.count({ where: { type: 'HS', active: true } })
-          console.log(`[monday:webhook] Broadcast HS targets: ${targets}`)
-        } catch {}
+          console.log('[monday:webhook:broadcast]', { service: 'HS', targets })
+        } catch (e) {
+          console.warn('[monday:webhook:broadcast] Failed to count HS targets', e)
+        }
         await sendPushToArtistsByType('HS', {
           title: 'New Proposal Available',
           body: 'A new client needs availability (HS).',
@@ -144,7 +151,7 @@ export async function POST(request: NextRequest) {
           url: '/(artist)/get-clients',
           data: { type: 'new_proposal' },
         })
-        return NextResponse.json({ success: true, note: 'Broadcast sent without itemId' })
+        return NextResponse.json({ success: true, note: 'Broadcast sent without itemId (HS)' })
       }
       await handleStatusChange(
         itemId.toString(),
