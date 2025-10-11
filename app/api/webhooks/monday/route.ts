@@ -5,7 +5,7 @@ import { createBatchAndProposals } from '@/lib/services/proposals'
 import { logAudit } from '@/lib/audit'
 import { sendNewProposalNotification, sendPushToArtistsByType } from '@/lib/push'
 import { getClientFromMonday, getArtistByMondayId } from '@/lib/monday'
-import { ServiceType } from '@/lib/types'
+import { ServiceType as PrismaServiceType } from '@prisma/client'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -179,8 +179,8 @@ async function handleStatusChange(
   timestamp: Date
 ) {
   try {
-    // Determine service type enum
-    const serviceTypeEnum: ServiceType = serviceType === 'MUA' ? 'WEDDING' : 'WEDDING' // Adjust as needed
+    // Determine service type enum (Prisma)
+    const serviceTypeEnum: PrismaServiceType = serviceType === 'MUA' ? 'MUA' : 'HS'
 
     // Handle "undecided – inquire availabilities" (normalize dashes/spaces)
     if (newStatus === TARGET_UNDECIDED) {
@@ -213,7 +213,7 @@ async function handleStatusChange(
 async function handleUndecidedStatus(
   mondayItemId: string,
   serviceType: 'MUA' | 'HS',
-  serviceTypeEnum: ServiceType,
+  serviceTypeEnum: PrismaServiceType,
   timestamp: Date
 ) {
   console.log('[monday:webhook] Handling UNDECIDED for', { mondayItemId, serviceType })
@@ -276,7 +276,7 @@ async function handleUndecidedStatus(
   const { batchId, proposalCount } = await createBatchAndProposals(
     clientServiceId,
     'BROADCAST',
-    'MANUAL'
+    'UNDECIDED'
   )
 
   // Log batch creation
@@ -336,7 +336,7 @@ async function handleUndecidedStatus(
 async function handleTravellingFeeStatus(
   mondayItemId: string,
   serviceType: 'MUA' | 'HS',
-  serviceTypeEnum: ServiceType,
+  serviceTypeEnum: PrismaServiceType,
   timestamp: Date
 ) {
   console.log('[monday:webhook] Handling TRAVELLING for', { mondayItemId, serviceType })
@@ -409,7 +409,7 @@ async function handleTravellingFeeStatus(
   const { batchId, proposalCount } = await createBatchAndProposals(
     clientServiceId,
     'SINGLE',
-    'MANUAL',
+    'CHOSEN_NO',
     1 // Target count of 1 for single mode
   )
 

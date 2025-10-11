@@ -33,7 +33,7 @@ export async function sendPushToUser(
     })
 
     if (subscriptions.length === 0) {
-      console.log(`No push subscriptions found for user ${userId}`)
+      console.log(`[push] No subscriptions for user ${userId}`)
       return
     }
 
@@ -57,7 +57,7 @@ export async function sendPushToUser(
           await prisma.pushSubscription.delete({
             where: { id: subscription.id },
           })
-          console.log(`Removed invalid subscription ${subscription.id}`)
+          console.log(`[push] Removed invalid subscription ${subscription.id}`)
         }
       }
     })
@@ -75,6 +75,7 @@ export async function sendPushToUsers(
   userIds: string[],
   payload: PushNotificationPayload
 ): Promise<void> {
+  console.log('[push:send]', { count: userIds.length, sample: userIds.slice(0, 5) })
   const pushPromises = userIds.map(userId => sendPushToUser(userId, payload))
   await Promise.allSettled(pushPromises)
 }
@@ -98,6 +99,7 @@ export async function sendPushToArtistsByType(
     })
 
     const userIds = artists.map(artist => artist.userId)
+    console.log('[push:broadcast]', { artistType, userCount: userIds.length, sample: userIds.slice(0, 5) })
     await sendPushToUsers(userIds, payload)
   } catch (error) {
     console.error('Error sending push to artists by type:', error)
@@ -150,5 +152,6 @@ export async function sendNewProposalNotification(
     },
   }
 
+  console.log('[push:new_proposal]', { userCount: userIds.length, sample: userIds.slice(0, 5) })
   await sendPushToUsers(userIds, payload)
 }
