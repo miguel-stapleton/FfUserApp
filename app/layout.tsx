@@ -8,8 +8,8 @@ export const metadata: Metadata = {
   title: 'Fresh Faced',
   description: 'Professional beauty services platform for artists and clients',
   manifest: '/manifest.json',
-  themeColor: '#ec4899',
-  viewport: 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no',
+  themeColor: '#ffffff',
+  viewport: 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
@@ -35,7 +35,7 @@ export default function RootLayout({
     <html lang="en">
       <head>
         <link rel="manifest" href="/manifest.json" />
-        <meta name="theme-color" content="#ec4899" />
+        <meta name="theme-color" content="#ffffff" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="Fresh Faced" />
