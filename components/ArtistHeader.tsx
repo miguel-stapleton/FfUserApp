@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { ChevronDown, User, Lock, LogOut } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
+import EnablePushButton from './EnablePushButton'
 
 interface ArtistHeaderProps {
   artistName?: string
@@ -78,68 +79,71 @@ export function ArtistHeader({ artistName }: ArtistHeaderProps) {
             />
           </div>
 
-          {/* Artist Menu */}
-          <div className="relative" ref={dropdownRef}>
-            <button
-              onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors"
-            >
-              <div className="w-8 h-8 bg-pink-100 rounded-full flex items-center justify-center overflow-hidden">
-                {profilePicture ? (
-                  <Image 
-                    src={profilePicture} 
-                    alt="Profile" 
-                    width={32}
-                    height={32}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <User className="w-5 h-5 text-pink-600" />
-                )}
-              </div>
-              <span className="text-sm font-medium text-gray-700">{name}</span>
-              <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
-            </button>
+          {/* Right actions */}
+          <div className="flex items-center gap-3">
+            <EnablePushButton />
+            <div className="relative" ref={dropdownRef}>
+              <button
+                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                <div className="w-8 h-8 bg-pink-100 rounded-full flex items-center justify-center overflow-hidden">
+                  {profilePicture ? (
+                    <Image 
+                      src={profilePicture} 
+                      alt="Profile" 
+                      width={32}
+                      height={32}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <User className="w-5 h-5 text-pink-600" />
+                  )}
+                </div>
+                <span className="text-sm font-medium text-gray-700">{name}</span>
+                <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
 
-            {/* Dropdown Menu */}
-            {isDropdownOpen && (
-              <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-1">
-                <button
-                  onClick={() => {
-                    setIsDropdownOpen(false)
-                    router.push('/upload-profile-picture')
-                  }}
-                  className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-                >
-                  <User className="w-4 h-4 text-gray-500" />
-                  Upload Profile Picture
-                </button>
+              {/* Dropdown Menu */}
+              {isDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-1">
+                  <button
+                    onClick={() => {
+                      setIsDropdownOpen(false)
+                      router.push('/upload-profile-picture')
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    <User className="w-4 h-4 text-gray-500" />
+                    Upload Profile Picture
+                  </button>
 
-                <button
-                  onClick={() => {
-                    setIsDropdownOpen(false)
-                    router.push('/change-password')
-                  }}
-                  className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-                >
-                  <Lock className="w-4 h-4 text-gray-500" />
-                  Change Password
-                </button>
-                
-                <div className="border-t border-gray-100 my-1" />
-                
-                <button
-                  onClick={() => {
-                    setIsDropdownOpen(false)
-                    handleLogout()
-                  }}
-                  className="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
-                >
-                  <LogOut className="w-4 h-4" />
-                  Logout
-                </button>
-              </div>
-            )}
+                  <button
+                    onClick={() => {
+                      setIsDropdownOpen(false)
+                      router.push('/change-password')
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    <Lock className="w-4 h-4 text-gray-500" />
+                    Change Password
+                  </button>
+                  
+                  <div className="border-t border-gray-100 my-1" />
+                  
+                  <button
+                    onClick={() => {
+                      setIsDropdownOpen(false)
+                      handleLogout()
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Logout
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
