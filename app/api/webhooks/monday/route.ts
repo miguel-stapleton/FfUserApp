@@ -216,11 +216,31 @@ async function handleUndecidedStatus(
   serviceTypeEnum: ServiceType,
   timestamp: Date
 ) {
-  // Ensure ClientService exists
-  const clientServiceId = await upsertClientServiceFromMonday(
-    mondayItemId,
-    serviceTypeEnum as any
-  )
+  console.log('[monday:webhook] Handling UNDECIDED for', { mondayItemId, serviceType })
+
+  // Try to upsert client service; if it fails, send a broadcast push as a fallback
+  let clientServiceId: string
+  try {
+    clientServiceId = await upsertClientServiceFromMonday(
+      mondayItemId,
+      serviceTypeEnum as any
+    )
+  } catch (e) {
+    console.warn('[monday:webhook] upsertClientServiceFromMonday failed, sending broadcast fallback', e)
+    try {
+      const targets = await prisma.artist.count({ where: { type: serviceType, active: true } })
+      console.log('[monday:webhook:broadcast:fallback]', { service: serviceType, targets })
+    } catch {}
+    await sendPushToArtistsByType(serviceType, {
+      title: 'New Proposal Available',
+      body: 'A new client needs availability.',
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
+      url: '/(artist)/get-clients',
+      data: { type: 'new_proposal' },
+    })
+    return
+  }
 
   // Log the status change
   await logAudit({
@@ -319,6 +339,8 @@ async function handleTravellingFeeStatus(
   serviceTypeEnum: ServiceType,
   timestamp: Date
 ) {
+  console.log('[monday:webhook] Handling TRAVELLING for', { mondayItemId, serviceType })
+
   // Get the chosen artist from Monday.com
   const chosenArtistColumnId = serviceType === 'MUA' 
     ? process.env.MONDAY_CHOSEN_MUA_COLUMN_ID 
@@ -359,11 +381,29 @@ async function handleTravellingFeeStatus(
     return
   }
 
-  // Ensure ClientService exists
-  const clientServiceId = await upsertClientServiceFromMonday(
-    mondayItemId,
-    serviceTypeEnum as any
-  )
+  // Ensure ClientService exists; if it fails, send fallback push and return
+  let clientServiceId: string
+  try {
+    clientServiceId = await upsertClientServiceFromMonday(
+      mondayItemId,
+      serviceTypeEnum as any
+    )
+  } catch (e) {
+    console.warn('[monday:webhook] upsertClientServiceFromMonday failed (single), sending fallback', e)
+    try {
+      const targets = await prisma.artist.count({ where: { type: serviceType, active: true } })
+      console.log('[monday:webhook:broadcast:fallback]', { service: serviceType, targets })
+    } catch {}
+    await sendPushToArtistsByType(serviceType, {
+      title: 'New Proposal Available',
+      body: 'A new client needs availability.',
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
+      url: '/(artist)/get-clients',
+      data: { type: 'new_proposal' },
+    })
+    return
+  }
 
   // Create SINGLE batch for the chosen artist
   const { batchId, proposalCount } = await createBatchAndProposals(
