@@ -214,19 +214,8 @@ async function handleStatusChange(
 
   } catch (error) {
     console.error(`Error handling ${serviceType} status change:`, error)
-    
-    // Log the error for audit purposes
-    await logAudit({
-      action: 'ERROR',
-      entityType: 'WEBHOOK',
-      entityId: mondayItemId,
-      details: {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        serviceType,
-        newStatus,
-        previousStatus,
-      },
-    })
+    // Do not write an AuditLog row here because entityId would not reference ClientService
+    // (AuditLog.entityId has an FK to ClientService.id). Use console for visibility only.
   }
 }
 
@@ -303,8 +292,10 @@ async function handleUndecidedStatus(
   await logAudit({
     action: 'STARTED',
     entityType: 'BATCH',
-    entityId: batchId,
+    // Use ClientService ID to satisfy FK constraint in AuditLog.entityId
+    entityId: clientServiceId,
     details: {
+      batchId,
       mode: 'BROADCAST',
       serviceType,
       proposalCount,
@@ -437,8 +428,10 @@ async function handleTravellingFeeStatus(
   await logAudit({
     action: 'STARTED',
     entityType: 'BATCH',
-    entityId: batchId,
+    // Use ClientService ID to satisfy FK constraint in AuditLog.entityId
+    entityId: clientServiceId,
     details: {
+      batchId,
       mode: 'SINGLE',
       serviceType,
       chosenArtistId: artist.id,
