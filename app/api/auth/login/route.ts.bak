@@ -3,6 +3,7 @@ import { z } from 'zod'
 import bcrypt from 'bcryptjs'
 // import { prisma } from '@/lib/prisma'
 import { createToken, setAuthCookie } from '@/lib/auth'
+import { logAudit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -48,6 +49,16 @@ export async function POST(request: NextRequest) {
     }
 
     // Log audit event
+    await logAudit({
+      userId: user.id,
+      action: 'USER_LOGIN',
+      entityType: 'USER',
+      entityId: user.id,
+      details: {
+        loginMethod: emailOrUsername.includes('@') ? 'email' : 'username',
+        userAgent: request.headers.get('user-agent') || 'unknown',
+      },
+    })
 
     // Create JWT token
     const token = createToken({
