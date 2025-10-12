@@ -92,9 +92,13 @@ export async function POST(request: NextRequest) {
     const value = parseValue((event as any).value)
     const previousValue = parseValue((event as any).previousValue)
 
-    // Validate env configuration and log if missing
-    const M_COL = process.env.MONDAY_MSTATUS_COLUMN_ID?.trim()
-    const H_COL = process.env.MONDAY_HSTATUS_COLUMN_ID?.trim()
+    // Validate env configuration and apply safe defaults for column IDs
+    const ENV_M_COL = process.env.MONDAY_MSTATUS_COLUMN_ID?.trim()
+    const ENV_H_COL = process.env.MONDAY_HSTATUS_COLUMN_ID?.trim()
+    const DEFAULT_M_COL = 'project_status'
+    const DEFAULT_H_COL = 'dup__of_mstatus'
+    const M_COL = !ENV_M_COL || ENV_M_COL === 'mua_status_column_id' ? DEFAULT_M_COL : ENV_M_COL
+    const H_COL = !ENV_H_COL || ENV_H_COL === 'hs_status_column_id' ? DEFAULT_H_COL : ENV_H_COL
     if (!M_COL || !H_COL) {
       console.warn('[monday:webhook] Missing MONDAY_MSTATUS_COLUMN_ID or MONDAY_HSTATUS_COLUMN_ID env in this environment')
     }

@@ -98,9 +98,21 @@ export async function sendPushToArtistsByType(
       },
     })
 
-    const userIds = artists.map(artist => artist.userId)
-    console.log('[push:broadcast]', { artistType, userCount: userIds.length, sample: userIds.slice(0, 5) })
-    await sendPushToUsers(userIds, payload)
+    const eligibleUserIds = artists.map(artist => artist.userId)
+    // Filter to users that have at least one subscription
+    const subs = await prisma.pushSubscription.findMany({
+      where: { userId: { in: eligibleUserIds } },
+      select: { userId: true },
+    })
+    const subscribedUserIds = Array.from(new Set(subs.map(s => s.userId)))
+
+    console.log('[push:broadcast]', {
+      artistType,
+      eligibleCount: eligibleUserIds.length,
+      subscribedCount: subscribedUserIds.length,
+      sample: subscribedUserIds.slice(0, 5),
+    })
+    await sendPushToUsers(subscribedUserIds, payload)
   } catch (error) {
     console.error('Error sending push to artists by type:', error)
   }
@@ -125,7 +137,13 @@ export async function sendNewProposalNotification(
     },
   })
 
-  const userIds = artists.map(artist => artist.userId)
+  const eligibleUserIds = artists.map(artist => artist.userId)
+  // Filter to users that have at least one subscription
+  const subs = await prisma.pushSubscription.findMany({
+    where: { userId: { in: eligibleUserIds } },
+    select: { userId: true },
+  })
+  const userIds = Array.from(new Set(subs.map(s => s.userId)))
 
   // Format event date safely
   let displayDate = ''
@@ -152,6 +170,10 @@ export async function sendNewProposalNotification(
     },
   }
 
-  console.log('[push:new_proposal]', { userCount: userIds.length, sample: userIds.slice(0, 5) })
+  console.log('[push:new_proposal]', {
+    eligibleCount: eligibleUserIds.length,
+    subscribedCount: userIds.length,
+    sample: userIds.slice(0, 5),
+  })
   await sendPushToUsers(userIds, payload)
 }

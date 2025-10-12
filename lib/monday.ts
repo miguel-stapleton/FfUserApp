@@ -364,19 +364,19 @@ export async function getClientFromMonday(itemId: string): Promise<MondayClient 
     // Extract column values
     const columnValues = item.column_values || []
     
-    // Find specific columns by ID or title
+    // Helper functions
     const getColumnValue = (columnId: string, fallbackTitle?: string) => {
-      const column = columnValues.find((col: any) => 
-        col.id === columnId || 
-        (fallbackTitle && col.title.toLowerCase().includes(fallbackTitle.toLowerCase()))
+      const column = columnValues.find((col: any) =>
+        col?.id === columnId ||
+        (fallbackTitle && typeof col?.title === 'string' && col.title.toLowerCase().includes(fallbackTitle.toLowerCase()))
       )
       return column?.text || null
     }
 
     const getColumnValueParsed = (columnId: string, fallbackTitle?: string) => {
-      const column = columnValues.find((col: any) => 
-        col.id === columnId || 
-        (fallbackTitle && col.title.toLowerCase().includes(fallbackTitle.toLowerCase()))
+      const column = columnValues.find((col: any) =>
+        col?.id === columnId ||
+        (fallbackTitle && typeof col?.title === 'string' && col.title.toLowerCase().includes(fallbackTitle.toLowerCase()))
       )
       
       if (column?.value) {
@@ -395,12 +395,35 @@ export async function getClientFromMonday(itemId: string): Promise<MondayClient 
     const chosenMuaColumnId = process.env.MONDAY_CHOSEN_MUA_COLUMN_ID
     const chosenHsColumnId = process.env.MONDAY_CHOSEN_HS_COLUMN_ID
 
+    // Safely parse event date from JSON or text
+    const eventDateParsed: any = getColumnValueParsed('date6', 'wedding date')
+    let eventDate: Date | null = null
+    if (eventDateParsed) {
+      if (typeof eventDateParsed === 'string') {
+        const d = new Date(eventDateParsed)
+        if (!isNaN(d.getTime())) eventDate = d
+      } else if (typeof eventDateParsed === 'object') {
+        const raw = (eventDateParsed as any).date || (eventDateParsed as any).start || (eventDateParsed as any).end
+        if (raw) {
+          const d = new Date(raw)
+          if (!isNaN(d.getTime())) eventDate = d
+        }
+      }
+    }
+    if (!eventDate) {
+      const eventDateText = getColumnValue('date6', 'wedding date')
+      if (eventDateText) {
+        const d = new Date(eventDateText)
+        if (!isNaN(d.getTime())) eventDate = d
+      }
+    }
+
     return {
       mondayItemId: item.id,
       name: item.name,
       email: getColumnValue('email4', 'email'),
       phone: getColumnValue('phone', 'phone'),
-      eventDate: getColumnValue('date6', 'wedding date'),
+      eventDate: eventDate || new Date(),
       beautyVenue: getColumnValue('location', 'beauty venue') || getColumnValue('text', 'venue'),
       observations: getColumnValue('long_text', 'observations') || getColumnValue('text0', 'notes'),
       mStatus: mStatusColumnId ? getColumnValue(mStatusColumnId, 'mstatus') : null,
@@ -455,17 +478,17 @@ export async function getAllClientsFromMonday(): Promise<MondayClient[]> {
       
       // Helper functions
       const getColumnValue = (columnId: string, fallbackTitle?: string) => {
-        const column = columnValues.find((col: any) => 
-          col.id === columnId || 
-          (fallbackTitle && col.title.toLowerCase().includes(fallbackTitle.toLowerCase()))
+        const column = columnValues.find((col: any) =>
+          col?.id === columnId ||
+          (fallbackTitle && typeof col?.title === 'string' && col.title.toLowerCase().includes(fallbackTitle.toLowerCase()))
         )
         return column?.text || null
       }
 
       const getColumnValueParsed = (columnId: string, fallbackTitle?: string) => {
-        const column = columnValues.find((col: any) => 
-          col.id === columnId || 
-          (fallbackTitle && col.title.toLowerCase().includes(fallbackTitle.toLowerCase()))
+        const column = columnValues.find((col: any) =>
+          col?.id === columnId ||
+          (fallbackTitle && typeof col?.title === 'string' && col.title.toLowerCase().includes(fallbackTitle.toLowerCase()))
         )
         
         if (column?.value) {
@@ -501,12 +524,35 @@ export async function getAllClientsFromMonday(): Promise<MondayClient[]> {
           hStatus.toLowerCase().includes(status.toLowerCase())
         )) {
         
+        // Safely parse event date from JSON or text
+        const eventDateParsed: any = getColumnValueParsed('date6', 'wedding date')
+        let eventDate: Date | null = null
+        if (eventDateParsed) {
+          if (typeof eventDateParsed === 'string') {
+            const d = new Date(eventDateParsed)
+            if (!isNaN(d.getTime())) eventDate = d
+          } else if (typeof eventDateParsed === 'object') {
+            const raw = (eventDateParsed as any).date || (eventDateParsed as any).start || (eventDateParsed as any).end
+            if (raw) {
+              const d = new Date(raw)
+              if (!isNaN(d.getTime())) eventDate = d
+            }
+          }
+        }
+        if (!eventDate) {
+          const eventDateText = getColumnValue('date6', 'wedding date')
+          if (eventDateText) {
+            const d = new Date(eventDateText)
+            if (!isNaN(d.getTime())) eventDate = d
+          }
+        }
+
         clients.push({
           mondayItemId: item.id,
           name: item.name,
           email: getColumnValue('email4', 'email'),
           phone: getColumnValue('phone', 'phone'),
-          eventDate: getColumnValue('date6', 'wedding date'),
+          eventDate: eventDate || new Date(),
           beautyVenue: getColumnValue('location', 'beauty venue') || getColumnValue('text', 'venue'),
           observations: getColumnValue('long_text', 'observations') || getColumnValue('text0', 'notes'),
           mStatus,
