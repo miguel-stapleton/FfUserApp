@@ -145,13 +145,13 @@ export async function sendNewProposalNotification(
   })
   const userIds = Array.from(new Set(subs.map(s => s.userId)))
 
-  // Format event date safely
+  // Format event date safely as DD/MM/YYYY
   let displayDate = ''
   if (eventDate) {
     try {
       const d = typeof eventDate === 'string' ? new Date(eventDate) : eventDate
       if (d && !isNaN(d.getTime())) {
-        displayDate = ` on ${d.toLocaleDateString()}`
+        displayDate = ` on ${d.toLocaleDateString('en-GB')}`
       }
     } catch {}
   }
@@ -161,7 +161,8 @@ export async function sendNewProposalNotification(
     body: `${clientName} - ${serviceType}${displayDate}`,
     icon: '/icon-192.png',
     badge: '/icon-192.png',
-    url: '/(artist)/get-clients',
+    // Route groups like (artist) are not part of the URL; use public path
+    url: '/get-clients',
     data: {
       type: 'new_proposal',
       clientName,

@@ -138,7 +138,7 @@ export async function POST(request: NextRequest) {
           body: 'A new client needs availability (MUA).',
           icon: '/icon-192.png',
           badge: '/icon-192.png',
-          url: '/(artist)/get-clients',
+          url: '/get-clients',
           data: { type: 'new_proposal' },
         })
         return NextResponse.json({ success: true, note: 'Broadcast sent without itemId (MUA)' })
@@ -168,7 +168,7 @@ export async function POST(request: NextRequest) {
           body: 'A new client needs availability (HS).',
           icon: '/icon-192.png',
           badge: '/icon-192.png',
-          url: '/(artist)/get-clients',
+          url: '/get-clients',
           data: { type: 'new_proposal' },
         })
         return NextResponse.json({ success: true, note: 'Broadcast sent without itemId (HS)' })
@@ -245,7 +245,7 @@ async function handleUndecidedStatus(
       body: 'A new client needs availability.',
       icon: '/icon-192.png',
       badge: '/icon-192.png',
-      url: '/(artist)/get-clients',
+      url: '/get-clients',
       data: { type: 'new_proposal' },
     })
     return
@@ -397,7 +397,7 @@ async function handleTravellingFeeStatus(
       body: 'A new client needs availability.',
       icon: '/icon-192.png',
       badge: '/icon-192.png',
-      url: '/(artist)/get-clients',
+      url: '/get-clients',
       data: { type: 'new_proposal' },
     })
     return
