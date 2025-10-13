@@ -314,19 +314,6 @@ async function handleUndecidedStatus(
       serviceTypeEnum,
       clientData.eventDate
     )
-
-    // Send push notifications to all selected artists
-    try {
-      await sendNewProposalNotification(
-        artists.map(a => a.id),
-        clientData.name,
-        serviceTypeEnum,
-        clientData.eventDate
-      )
-    } catch (pushError) {
-      console.error('Failed to send push notifications:', pushError)
-      // Don't fail the webhook for push notification errors
-    }
   } else {
     console.warn('[monday:webhook] getClientFromMonday returned null, sending fallback notification')
     try {
@@ -450,19 +437,6 @@ async function handleTravellingFeeStatus(
       serviceTypeEnum,
       clientData.eventDate
     )
-
-    // Send push notifications to selected artists
-    try {
-      await sendNewProposalNotification(
-        [artist.id],
-        clientData.name,
-        serviceTypeEnum,
-        clientData.eventDate
-      )
-    } catch (pushError) {
-      console.error('Failed to send push notification:', pushError)
-      // Don't fail the webhook for push notification errors
-    }
   } else {
     console.warn('[monday:webhook] getClientFromMonday returned null (single), sending fallback notification')
     try {
