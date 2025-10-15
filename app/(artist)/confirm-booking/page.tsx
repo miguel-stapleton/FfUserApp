@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { AuthGate } from '@/components/AuthGate'
 import { ArtistHeader } from '@/components/ArtistHeader'
 import { Button } from '@/components/ui/button'
-import Select from '@/components/ui/select'
+import { Select } from '@/components/ui/select'
 import { useToast } from '@/components/ui/use-toast'
 import { Toaster } from '@/components/ui/toaster'
 
