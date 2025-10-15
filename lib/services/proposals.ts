@@ -133,6 +133,57 @@ export async function createBatchAndProposals(
 }
 
 /**
+ * Create a proposal batch and proposals for a specific list of artist IDs.
+ * Does NOT change existing behavior elsewhere; use this only when you must target known artists.
+ */
+export async function createBatchForSpecificArtists(
+  clientServiceId: string,
+  mode: ProposalBatchMode,
+  reason: BatchStartReason,
+  artistIds: string[],
+): Promise<{ batchId: string; proposalCount: number }> {
+  return await prisma.$transaction(async (tx) => {
+    // Get client service details
+    const clientService = await tx.clientService.findUnique({
+      where: { id: clientServiceId },
+    })
+
+    if (!clientService) {
+      throw new Error('Client service not found')
+    }
+
+    // Calculate deadline (24 hours from now)
+    const deadlineAt = new Date(Date.now() + 24 * 60 * 60 * 1000)
+
+    // Create the proposal batch
+    const batch = await tx.proposalBatch.create({
+      data: {
+        clientServiceId,
+        mode,
+        state: 'OPEN',
+        startReason: reason as any,
+        deadlineAt,
+      },
+    })
+
+    // Create proposals exactly for the provided artist IDs
+    const proposals = await Promise.all(
+      artistIds.map(artistId =>
+        tx.proposal.create({
+          data: {
+            proposalBatchId: batch.id,
+            clientServiceId: clientService.id,
+            artistId,
+          },
+        })
+      )
+    )
+
+    return { batchId: batch.id, proposalCount: proposals.length }
+  })
+}
+
+/**
  * Get open proposals for an artist from Monday.com
  */
 export async function getOpenProposalsForArtist(userId: string): Promise<ArtistProposalCard[]> {

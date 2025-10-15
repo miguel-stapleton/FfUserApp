@@ -104,12 +104,14 @@ async function handleCreatePulse(event: any) {
   if (mStatusNorm !== TARGET_TRAVELLING && hStatusNorm !== TARGET_TRAVELLING) {
     return // Only act on Travelling fee at creation (either MUA or HS)
   }
-  const serviceType: 'MUA' | 'HS' = mStatusNorm === TARGET_TRAVELLING ? 'MUA' : 'HS'
-  const MAPPING = serviceType === 'MUA' ? NAME_TO_EMAIL : NAME_TO_EMAIL_HS
+  let serviceType: 'MUA' | 'HS' = mStatusNorm === TARGET_TRAVELLING ? 'MUA' : 'HS'
+  const PRIMARY_MAPPING = serviceType === 'MUA' ? NAME_TO_EMAIL : NAME_TO_EMAIL_HS
+  const SECONDARY_MAPPING = serviceType === 'MUA' ? NAME_TO_EMAIL_HS : NAME_TO_EMAIL
 
   // Attempts to read updates immediately, with up to 2 short retries
   let attempts = 0
   let chosenEmail: string | null = null
+  let matchedServiceType: 'MUA' | 'HS' | null = null
   while (attempts < 3 && !chosenEmail) {
     attempts++
     const updates = await getItemUpdates(String(itemId))
@@ -124,11 +126,24 @@ async function handleCreatePulse(event: any) {
         const idx = text.indexOf(phrase)
         const tail = text.slice(idx + phrase.length).trim()
         // Try to match any known name against tail
-        for (const nameKey of Object.keys(MAPPING)) {
+        // First, try primary mapping based on which status was set
+        for (const nameKey of Object.keys(PRIMARY_MAPPING)) {
           const keyNorm = normalizeText(nameKey)
           if (tail.startsWith(keyNorm) || tail.includes(` ${keyNorm}`) || tail.includes(`${keyNorm} `)) {
-            chosenEmail = MAPPING[nameKey]
+            chosenEmail = PRIMARY_MAPPING[nameKey]
+            matchedServiceType = serviceType
             break
+          }
+        }
+        // If not found, try the secondary mapping and set service type accordingly
+        if (!chosenEmail) {
+          for (const nameKey of Object.keys(SECONDARY_MAPPING)) {
+            const keyNorm = normalizeText(nameKey)
+            if (tail.startsWith(keyNorm) || tail.includes(` ${keyNorm}`) || tail.includes(`${keyNorm} `)) {
+              chosenEmail = SECONDARY_MAPPING[nameKey]
+              matchedServiceType = serviceType === 'MUA' ? 'HS' : 'MUA'
+              break
+            }
           }
         }
         if (chosenEmail) break
@@ -144,6 +159,11 @@ async function handleCreatePulse(event: any) {
   if (!chosenEmail) {
     console.warn('[monday:create_pulse] Could not resolve chosen artist from updates after retries', { itemId })
     return
+  }
+
+  // If we matched via the secondary map, update the serviceType accordingly
+  if (matchedServiceType) {
+    serviceType = matchedServiceType
   }
 
   // Find artist by email
