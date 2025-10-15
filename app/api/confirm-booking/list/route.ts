@@ -45,13 +45,40 @@ const HS_EMAIL_TO_PHRASE: Record<string, string> = {
   'hi@letshair.com': 'aceitou as condições de Agne',
 }
 
-function isFutureDateText(text?: string | null): boolean {
-  if (!text) return false
-  const d = new Date(text)
-  if (isNaN(d.getTime())) return false
+function parseMondayDateFromColValue(dateCol: any): Date | null {
+  if (!dateCol) return null
+  // Prefer the JSON value, which typically looks like: { date: 'YYYY-MM-DD', changed_at: '...' }
+  if (dateCol.value) {
+    try {
+      const parsed = JSON.parse(dateCol.value)
+      if (parsed?.date && typeof parsed.date === 'string') {
+        const iso = new Date(parsed.date + 'T00:00:00')
+        if (!isNaN(iso.getTime())) return iso
+      }
+    } catch {}
+  }
+  // Fallback: parse common DD/MM/YYYY or DD-MM-YYYY formats from the text
+  const txt: string = dateCol.text || ''
+  const m = txt.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/)
+  if (m) {
+    const dd = parseInt(m[1], 10)
+    const mm = parseInt(m[2], 10)
+    const yyyy = parseInt(m[3], 10)
+    if (dd >= 1 && dd <= 31 && mm >= 1 && mm <= 12 && yyyy > 1900) {
+      const d = new Date(Date.UTC(yyyy, mm - 1, dd))
+      if (!isNaN(d.getTime())) return d
+    }
+  }
+  // Last resort: native Date
+  const naive = new Date(txt)
+  return isNaN(naive.getTime()) ? null : naive
+}
+
+function isFutureDateCol(dateCol: any): { ok: boolean; date: Date | null } {
+  const d = parseMondayDateFromColValue(dateCol)
+  if (!d) return { ok: false, date: null }
   const now = new Date()
-  // Only dates strictly in the future
-  return d.getTime() > now.getTime()
+  return { ok: d.getTime() > now.getTime(), date: d }
 }
 
 export async function GET(request: NextRequest) {
@@ -119,8 +146,8 @@ export async function GET(request: NextRequest) {
     const candidates = items.filter((item) => {
       const colValues = (item.column_values || []) as Array<any>
       const dateCol = colValues.find(c => c.id === DATE_COL_ID)
-      const dateText = dateCol?.text || null
-      if (!isFutureDateText(dateText)) return false
+      const { ok } = isFutureDateCol(dateCol)
+      if (!ok) return false
 
       const statusCol = colValues.find(c => c.id === statusColId)
       const statusText = statusCol?.text || ''
@@ -136,7 +163,9 @@ export async function GET(request: NextRequest) {
       const hasPhrase = combined.includes(normalize(phrase))
       if (hasPhrase) {
         const dateCol = (item.column_values || []).find((c: any) => c.id === DATE_COL_ID)
-        results.push({ id: String(item.id), name: item.name, eventDate: dateCol?.text || '' })
+        const parsed = isFutureDateCol(dateCol).date
+        const display = parsed ? new Date(parsed).toLocaleDateString('en-GB') : (dateCol?.text || '')
+        results.push({ id: String(item.id), name: item.name, eventDate: display })
       }
     }
 
