@@ -202,6 +202,29 @@ export class MondayService {
       return false
     }
   }
+
+  /**
+   * Fetch updates (Activity Log) for an item
+   */
+  public async getItemUpdates(itemId: string): Promise<Array<{ id: string; body?: string; text_body?: string; created_at?: string }>> {
+    const query = `
+      query GetItemUpdates($itemId: ID!) {
+        items(ids: [$itemId]) {
+          id
+          updates {
+            id
+            body
+            text_body
+            created_at
+          }
+        }
+      }
+    `
+    const data = await this.makeRequest(query, { itemId })
+    const item = data?.items?.[0]
+    const updates = item?.updates || []
+    return Array.isArray(updates) ? updates : []
+  }
 }
 
 // Lazy getter to avoid throwing at import time
@@ -577,5 +600,16 @@ export async function setEmailAutomation(itemId: string, automationType: 'Send o
   } catch (error) {
     console.error('Failed to set email automation via helper:', error)
     return false
+  }
+}
+
+// Convenience wrapper to fetch item updates (Activity Log)
+export async function getItemUpdates(itemId: string): Promise<Array<{ id: string; body?: string; text_body?: string; created_at?: string }>> {
+  try {
+    const service = getMondayService()
+    return await service.getItemUpdates(itemId)
+  } catch (error) {
+    console.error('Failed to get item updates:', error)
+    return []
   }
 }
