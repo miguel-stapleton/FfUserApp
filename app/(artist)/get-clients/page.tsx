@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Sparkles, Calendar } from 'lucide-react'
+import { Sparkles, Calendar, CheckCircle } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { AuthGate } from '@/components/AuthGate'
@@ -169,6 +169,14 @@ export default function GetClientsPage() {
               >
                 <Calendar className="w-4 h-4 mr-2" />
                 Log a Trial
+              </Button>
+              <Button
+                onClick={() => router.push('/confirm-booking')}
+                variant="outline"
+                className="ml-2 border-pink-600 text-pink-700 hover:bg-pink-50"
+              >
+                <CheckCircle className="w-4 h-4 mr-2" />
+                Confirm a Booking!
               </Button>
             </div>
           </div>
