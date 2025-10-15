@@ -45,6 +45,19 @@ const HS_EMAIL_TO_PHRASE: Record<string, string> = {
   'hi@letshair.com': 'aceitou as condições de Agne',
 }
 
+function statusTextFromColumn(col: any): string {
+  const txt = (col?.text || '').trim()
+  if (txt) return txt
+  if (col?.value) {
+    try {
+      const parsed = JSON.parse(col.value)
+      const label = (parsed?.label || parsed?.text || '').toString().trim()
+      if (label) return label
+    } catch {}
+  }
+  return ''
+}
+
 function parseMondayDateFromColValue(dateCol: any): Date | null {
   if (!dateCol) return null
   // Prefer the JSON value, which typically looks like: { date: 'YYYY-MM-DD', changed_at: '...' }
@@ -150,7 +163,7 @@ export async function GET(request: NextRequest) {
       if (!ok) return false
 
       const statusCol = colValues.find(c => c.id === statusColId)
-      const statusText = statusCol?.text || ''
+      const statusText = statusTextFromColumn(statusCol)
       const statusNorm = normalize(statusText)
       return normTargets.includes(statusNorm)
     })
