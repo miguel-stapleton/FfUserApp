@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import axios from 'axios'
+import axios, { AxiosResponse } from 'axios'
 import { prisma } from '@/lib/prisma'
 import { requireArtist } from '@/lib/auth'
 import { getItemUpdates } from '@/lib/monday'
@@ -97,7 +97,7 @@ export async function GET(request: NextRequest) {
     `
 
     do {
-      const resp = await axios.post(
+      const resp: AxiosResponse<any> = await axios.post(
         MONDAY_API_URL,
         { query, variables: { boardId: CLIENTS_BOARD_ID, cursor } },
         { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
