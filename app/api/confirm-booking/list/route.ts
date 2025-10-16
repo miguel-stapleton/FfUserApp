@@ -129,7 +129,7 @@ export async function GET(request: NextRequest) {
             items {
               id
               name
-              column_values { id text value title }
+              column_values { id text value }
             }
           }
         }
