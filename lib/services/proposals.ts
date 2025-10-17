@@ -506,6 +506,9 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
       }
 
       for (const gItem of guestItems) {
+        // If artist already responded to this guest item, skip it
+        if (respondedClientIds.has(String(gItem.id))) continue
+
         const colValues = gItem.column_values || []
         const muaBool = colValues.find((c: any) => c.id === MONDAY_INDEP_GUESTS_MUA_BOOL_COL)
         const hsBool = colValues.find((c: any) => c.id === MONDAY_INDEP_GUESTS_HS_BOOL_COL)
@@ -530,27 +533,38 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
         if (!eligible) continue
 
         // Extract event date and location
+        let eventDate: Date | null = null
         const dateCol = colValues.find((c: any) => c.id === MONDAY_INDEP_GUESTS_EVENT_DATE_COL)
-        let eventDate = new Date()
         if (dateCol?.value) {
           try {
             const dv = JSON.parse(dateCol.value)
-            if (dv?.date) {
-              const d = new Date(dv.date)
+            if (dv?.date && typeof dv.date === 'string') {
+              const d = new Date(dv.date + 'T00:00:00')
               if (!isNaN(d.getTime())) eventDate = d
             }
           } catch {}
-        } else if (dateCol?.text) {
+        }
+        if (!eventDate && dateCol?.text) {
           const d = new Date(dateCol.text)
           if (!isNaN(d.getTime())) eventDate = d
         }
+
+        // Only include future dates; if no valid date, skip
+        if (!eventDate || eventDate.getTime() <= Date.now()) {
+          continue
+        }
+
         const venueCol = colValues.find((c: any) => c.id === MONDAY_INDEP_GUESTS_LOCATION_COL)
         const beautyVenue = venueCol?.text || ''
+
+        // Client's Name from short_text8 (fallback to item.name)
+        const nameCol = colValues.find((c: any) => c.id === 'short_text8')
+        const clientName = (nameCol?.text || '').trim() || gItem.name
 
         proposals.push({
           id: `guest-${gItem.id}`,
           batchId: 'guest-' + gItem.id,
-          clientName: gItem.name,
+          clientName,
           serviceType: artist.type as any,
           eventDate,
           beautyVenue,
@@ -581,99 +595,187 @@ export async function respondToProposal({
   response,
   actorUserId,
 }: RespondToProposalRequest): Promise<void> {
-  await prisma.$transaction(async (tx) => {
-    // Get the proposal with related data
-    const proposal = await tx.proposal.findUnique({
-      where: { id: proposalId },
-      include: {
-        proposalBatch: {
-          include: {
-            clientService: true,
-          },
+  // Try DB proposal path first (existing flow)
+  const dbProposal = await prisma.proposal.findUnique({
+    where: { id: proposalId },
+    include: {
+      proposalBatch: { include: { clientService: true } },
+      artist: { include: { user: true } },
+    },
+  })
+
+  if (dbProposal) {
+    await prisma.$transaction(async (tx) => {
+      if (dbProposal.response) {
+        throw new Error('Proposal has already been responded to')
+      }
+      if (dbProposal.proposalBatch?.state !== 'OPEN') {
+        throw new Error('Proposal batch is not active')
+      }
+      await tx.proposal.update({
+        where: { id: proposalId },
+        data: { response, respondedAt: new Date() },
+      })
+      await logAudit({
+        userId: actorUserId,
+        action: 'PROPOSAL_RESPONSE',
+        entityType: 'PROPOSAL',
+        entityId: proposalId,
+        details: {
+          proposalId,
+          response,
+          bridesName: dbProposal.proposalBatch?.clientService?.bridesName,
+          artistEmail: dbProposal.artist?.email,
         },
-        artist: {
-          include: {
-            user: true,
-          },
+      })
+      if (dbProposal.proposalBatch?.mode === 'SINGLE' && response === 'YES') {
+        await tx.proposalBatch.update({ where: { id: dbProposal.proposalBatchId }, data: { state: 'COMPLETED' as any } })
+        await tx.proposal.updateMany({
+          where: { proposalBatchId: dbProposal.proposalBatchId, response: null, id: { not: proposalId } },
+          data: { response: 'NO', respondedAt: new Date() },
+        })
+      }
+      const remaining = await tx.proposal.count({ where: { proposalBatchId: dbProposal.proposalBatchId, response: null } })
+      if (remaining === 0 && dbProposal.proposalBatch?.state === 'OPEN') {
+        await tx.proposalBatch.update({ where: { id: dbProposal.proposalBatchId }, data: { state: 'COMPLETED' as any } })
+      }
+    })
+    return
+  }
+
+  // Not a DB proposal ID. Handle Monday-based IDs.
+  // Resolve acting artist
+  const actor = await prisma.artist.findUnique({ where: { userId: actorUserId }, include: { user: true } })
+  if (!actor) throw new Error('Artist not found')
+
+  // Helper to ensure OPEN batch exists
+  const ensureOpenBatchId = async (clientServiceId: string): Promise<string> => {
+    let batch = await prisma.proposalBatch.findFirst({ where: { clientServiceId, state: 'OPEN' as any } })
+    if (!batch) {
+      batch = await prisma.proposalBatch.create({
+        data: {
+          clientServiceId,
+          mode: 'BROADCAST' as any,
+          startReason: 'UNDECIDED' as any,
+          deadlineAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          state: 'OPEN' as any,
         },
-      },
+      })
+    }
+    return batch.id
+  }
+
+  // Independent Guests ID: 'guest-<id>'
+  if (proposalId.startsWith('guest-')) {
+    const guestItemId = proposalId.replace('guest-', '')
+
+    // Ensure ClientService for Independent Guests exists (build minimal data from Guests board)
+    let clientService = await prisma.clientService.findFirst({
+      where: { mondayClientItemId: guestItemId, service: actor.type as any },
     })
-
-    if (!proposal) {
-      throw new Error('Proposal not found')
+    if (!clientService) {
+      const query = `
+        query GetGuestItem($itemId: ID!) {
+          items(ids: [$itemId]) { id name column_values { id text value } }
+        }
+      `
+      const resp: any = await axios.post(
+        MONDAY_API_URL,
+        { query, variables: { itemId: guestItemId } },
+        { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
+      )
+      const item = resp.data?.data?.items?.[0]
+      const cols: any[] = item?.column_values || []
+      const getCol = (id: string) => cols.find(c => c.id === id)
+      // Parse date6
+      let weddingDate = new Date()
+      const dCol = getCol(MONDAY_INDEP_GUESTS_EVENT_DATE_COL)
+      if (dCol?.value) {
+        try { const dv = JSON.parse(dCol.value); if (dv?.date) { const d = new Date(dv.date); if (!isNaN(d.getTime())) weddingDate = d } } catch {}
+      } else if (dCol?.text) { const d = new Date(dCol.text); if (!isNaN(d.getTime())) weddingDate = d }
+      const venueCol = getCol(MONDAY_INDEP_GUESTS_LOCATION_COL)
+      const beautyVenue = venueCol?.text || ''
+      const nameCol = getCol('short_text8')
+      const clientName = (nameCol?.text || '').trim() || item?.name || 'Client'
+      clientService = await prisma.clientService.create({
+        data: {
+          mondayClientItemId: guestItemId,
+          service: actor.type as any,
+          bridesName: clientName,
+          weddingDate,
+          beautyVenue,
+          description: null,
+          currentStatus: null,
+        },
+      })
     }
-
-    if (proposal.response) {
-      throw new Error('Proposal has already been responded to')
+    const batchId = await ensureOpenBatchId(clientService.id)
+    // Upsert Proposal for this artist then set response
+    const existing = await prisma.proposal.findFirst({ where: { proposalBatchId: batchId, artistId: actor.id } })
+    let targetProposalId = existing?.id
+    if (!existing) {
+      const created = await prisma.proposal.create({
+        data: { proposalBatchId: batchId, clientServiceId: clientService.id, artistId: actor.id }
+      })
+      targetProposalId = created.id
     }
-
-    if (proposal.proposalBatch?.state !== 'OPEN') {
-      throw new Error('Proposal batch is not active')
-    }
-
-    // Update the proposal
-    await tx.proposal.update({
-      where: { id: proposalId },
-      data: {
-        response,
-        respondedAt: new Date(),
-      },
-    })
-
-    // Log the response
+    await prisma.proposal.update({ where: { id: targetProposalId! }, data: { response, respondedAt: new Date() } })
     await logAudit({
       userId: actorUserId,
       action: 'PROPOSAL_RESPONSE',
-      entityType: 'PROPOSAL',
-      entityId: proposalId,
-      details: {
-        proposalId,
-        response,
-        bridesName: proposal.proposalBatch?.clientService?.bridesName,
-        artistEmail: proposal.artist?.email,
-      },
+      entityType: 'CLIENT_SERVICE',
+      entityId: clientService.id,
+      details: { mondayClientItemId: guestItemId, response, artistEmail: actor.email },
     })
+    return
+  }
 
-    // If this is a SINGLE mode batch and someone said YES, complete the batch
-    if (proposal.proposalBatch?.mode === 'SINGLE' && response === 'YES') {
-      await tx.proposalBatch.update({
-        where: { id: proposal.proposalBatchId },
-        data: {
-          state: 'COMPLETED' as any,
-        },
-      })
-
-      // Cancel other pending proposals in this batch
-      await tx.proposal.updateMany({
-        where: {
-          proposalBatchId: proposal.proposalBatchId,
-          response: null,
-          id: { not: proposalId },
-        },
-        data: {
-          response: 'NO', // Auto-reject other proposals
-          respondedAt: new Date(),
-        },
-      })
+  // Monday Clients board item ID: numeric or 'monday-<id>'
+  const mondayId = proposalId.startsWith('monday-') ? proposalId.replace('monday-', '') : proposalId
+  if (/^\d+$/.test(mondayId)) {
+    // Ensure ClientService exists (from Clients board)
+    const clientServiceId = await (async () => {
+      try {
+        // Uses Clients board data
+        const id = await (await import('./clients')).upsertClientServiceFromMonday(mondayId, actor.type as any, actorUserId)
+        return id
+      } catch (e) {
+        // As a fallback, create minimal client service if Monday lookup fails
+        let cs = await prisma.clientService.findFirst({ where: { mondayClientItemId: mondayId, service: actor.type as any } })
+        if (!cs) {
+          cs = await prisma.clientService.create({
+            data: {
+              mondayClientItemId: mondayId,
+              service: actor.type as any,
+              bridesName: 'Client',
+              weddingDate: new Date(),
+              beautyVenue: '',
+            },
+          })
+        }
+        return cs.id
+      }
+    })()
+    const batchId = await ensureOpenBatchId(clientServiceId)
+    const existing = await prisma.proposal.findFirst({ where: { proposalBatchId: batchId, artistId: actor.id } })
+    let targetProposalId = existing?.id
+    if (!existing) {
+      const created = await prisma.proposal.create({ data: { proposalBatchId: batchId, clientServiceId, artistId: actor.id } })
+      targetProposalId = created.id
     }
-
-    // Check if all proposals in batch have been responded to
-    const remainingProposals = await tx.proposal.count({
-      where: {
-        proposalBatchId: proposal.proposalBatchId,
-        response: null,
-      },
+    await prisma.proposal.update({ where: { id: targetProposalId! }, data: { response, respondedAt: new Date() } })
+    await logAudit({
+      userId: actorUserId,
+      action: 'PROPOSAL_RESPONSE',
+      entityType: 'CLIENT_SERVICE',
+      entityId: clientServiceId,
+      details: { mondayClientItemId: mondayId, response, artistEmail: actor.email },
     })
+    return
+  }
 
-    if (remainingProposals === 0 && proposal.proposalBatch?.state === 'OPEN') {
-      await tx.proposalBatch.update({
-        where: { id: proposal.proposalBatchId },
-        data: {
-          state: 'COMPLETED' as any,
-        },
-      })
-    }
-  })
+  // If we get here, the ID didn't match any supported format
+  throw new Error('Proposal not found')
 }
 
 /**

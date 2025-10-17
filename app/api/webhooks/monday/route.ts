@@ -129,6 +129,7 @@ async function handleCreatePulse(event: any) {
       const MU_BOOL_ID = 'booleancr88sq6z' // MU?
       const HS_BOOL_ID = 'booleany6w6zo7p' // H? / False
       const DATE_COL_ID = 'date6'
+      const NAME_COL_ID = 'short_text8'
 
       const muTrue = parseBool(getCol(MU_BOOL_ID))
       const hsTrue = parseBool(getCol(HS_BOOL_ID))
@@ -149,10 +150,14 @@ async function handleCreatePulse(event: any) {
         if (!isNaN(d.getTime())) displayDate = ' on ' + d.toLocaleDateString('en-GB')
       }
 
+      // Prefer Client's Name for display
+      const nameCol = getCol(NAME_COL_ID)
+      const displayName = (nameCol?.text || '').trim() || item.name
+
       if (muTrue) {
         await sendPushToArtistsByType('MUA', {
           title: 'New Independent Guest',
-          body: `${item.name}${displayDate}`,
+          body: `${displayName}${displayDate}`,
           icon: '/icon-192.png',
           badge: '/icon-192.png',
           url: '/get-clients',
@@ -162,7 +167,7 @@ async function handleCreatePulse(event: any) {
       if (hsTrue) {
         await sendPushToArtistsByType('HS', {
           title: 'New Independent Guest',
-          body: `${item.name}${displayDate}`,
+          body: `${displayName}${displayDate}`,
           icon: '/icon-192.png',
           badge: '/icon-192.png',
           url: '/get-clients',
@@ -343,10 +348,10 @@ export async function POST(request: NextRequest) {
       })
     } catch {}
 
-    // Handle item creation events
-    if ((event as any)?.type === 'create_pulse') {
+    // Handle item creation events (support both create_pulse and create_item)
+    if ((event as any)?.type === 'create_pulse' || (event as any)?.type === 'create_item') {
       await handleCreatePulse(event)
-      return NextResponse.json({ success: true, note: 'create_pulse handled' })
+      return NextResponse.json({ success: true, note: 'create handled' })
     }
 
     // Only handle column value changes
@@ -371,6 +376,91 @@ export async function POST(request: NextRequest) {
     }
     const value = parseValue((event as any).value)
     const previousValue = parseValue((event as any).previousValue)
+
+    // Independent Guests: when MU?/H? boolean flips to TRUE, broadcast
+    try {
+      const BOARD_INDEPENDENT_GUESTS = 1913629164
+      const MU_BOOL_ID = 'booleancr88sq6z'
+      const HS_BOOL_ID = 'booleany6w6zo7p'
+      const DATE_COL_ID = 'date6'
+
+      const getChecked = (val: any): boolean => {
+        try {
+          if (!val) return false
+          if (typeof val === 'string') {
+            const p = JSON.parse(val)
+            return p?.checked === 'true' || p?.checked === true
+          }
+          return val?.checked === 'true' || val?.checked === true
+        } catch {
+          return false
+        }
+      }
+
+      if (event.boardId === BOARD_INDEPENDENT_GUESTS && (columnId === MU_BOOL_ID || columnId === HS_BOOL_ID)) {
+        const nowChecked = getChecked(value)
+        const prevChecked = getChecked(previousValue)
+        if (nowChecked && !prevChecked && itemId) {
+          // Fetch item to read name/date for message
+          const q = `
+            query GetItem($itemId: ID!) {
+              items(ids: [$itemId]) {
+                id
+                name
+                column_values { id text value }
+              }
+            }
+          `
+          const r = await axios.post(
+            'https://api.monday.com/v2',
+            { query: q, variables: { itemId } },
+            { headers: { Authorization: process.env.MONDAY_API_TOKEN || '', 'Content-Type': 'application/json' } }
+          )
+          const it = r.data?.data?.items?.[0]
+          const cols: any[] = it?.column_values || []
+          const getCol = (id: string) => cols.find(c => c.id === id)
+          const nameCol = getCol('short_text8')
+          const displayName = (nameCol?.text || '').trim() || it?.name || 'Independent Guest'
+
+          let displayDate = ''
+          const dCol = getCol(DATE_COL_ID)
+          if (dCol?.value) {
+            try {
+              const dv = JSON.parse(dCol.value)
+              if (dv?.date) {
+                const d = new Date(dv.date)
+                if (!isNaN(d.getTime())) displayDate = ' on ' + d.toLocaleDateString('en-GB')
+              }
+            } catch {}
+          } else if (dCol?.text) {
+            const d = new Date(dCol.text)
+            if (!isNaN(d.getTime())) displayDate = ' on ' + d.toLocaleDateString('en-GB')
+          }
+
+          if (columnId === MU_BOOL_ID) {
+            await sendPushToArtistsByType('MUA', {
+              title: 'New Independent Guest',
+              body: `${displayName}${displayDate}`,
+              icon: '/icon-192.png',
+              badge: '/icon-192.png',
+              url: '/get-clients',
+              data: { type: 'new_proposal', board: 'Independent Guests', itemId: String(itemId) },
+            })
+          } else {
+            await sendPushToArtistsByType('HS', {
+              title: 'New Independent Guest',
+              body: `${displayName}${displayDate}`,
+              icon: '/icon-192.png',
+              badge: '/icon-192.png',
+              url: '/get-clients',
+              data: { type: 'new_proposal', board: 'Independent Guests', itemId: String(itemId) },
+            })
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[monday:webhook] guests-boolean handling failed', e)
+    }
 
     // Validate env configuration and apply safe defaults for column IDs
     const ENV_M_COL = process.env.MONDAY_MSTATUS_COLUMN_ID?.trim()
