@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import axios from 'axios'
 import { prisma } from '@/lib/prisma'
 import { upsertClientServiceFromMonday } from '@/lib/services/clients'
 import { createBatchAndProposals } from '@/lib/services/proposals'
@@ -80,6 +81,101 @@ function normalizeText(s: string | undefined | null) {
 
 async function handleCreatePulse(event: any) {
   const BOARD_CLIENTS = 1260828829
+  const BOARD_INDEPENDENT_GUESTS = 1913629164
+
+  // Independent Guests: broadcast to relevant artists when MU?/H? is true
+  if (event?.boardId === BOARD_INDEPENDENT_GUESTS) {
+    try {
+      const rawItemId: any = (event as any).itemId ?? (event as any).pulseId ?? (event as any).item_id ?? (event as any).pulse_id
+      const itemId: number | undefined = typeof rawItemId === 'string' || typeof rawItemId === 'number' ? Number(rawItemId) : undefined
+      if (!itemId) return
+
+      // Fetch item with column values
+      const query = `
+        query GetItem($itemId: ID!) {
+          items(ids: [$itemId]) {
+            id
+            name
+            column_values { id text value }
+          }
+        }
+      `
+      const resp = await axios.post(
+        'https://api.monday.com/v2',
+        { query, variables: { itemId } },
+        { headers: { Authorization: process.env.MONDAY_API_TOKEN || '', 'Content-Type': 'application/json' } }
+      )
+      if (resp.data?.errors) {
+        console.warn('[monday:create_pulse:guests] Monday errors', resp.data.errors)
+        return
+      }
+      const item = resp.data?.data?.items?.[0]
+      if (!item) return
+
+      const cols: any[] = item.column_values || []
+      const getCol = (id: string) => cols.find(c => c.id === id)
+      const parseBool = (col: any): boolean => {
+        if (!col) return false
+        const t = (col.text || '').toString().toLowerCase().trim()
+        if (t === 'true' || t === 'checked') return true
+        if (col.value) {
+          try {
+            const v = JSON.parse(col.value)
+            if (v && (v.checked === 'true' || v.checked === true)) return true
+          } catch {}
+        }
+        return false
+      }
+      const MU_BOOL_ID = 'booleancr88sq6z' // MU?
+      const HS_BOOL_ID = 'booleany6w6zo7p' // H? / False
+      const DATE_COL_ID = 'date6'
+
+      const muTrue = parseBool(getCol(MU_BOOL_ID))
+      const hsTrue = parseBool(getCol(HS_BOOL_ID))
+
+      // Extract event date for nicer push text
+      let displayDate = ''
+      const dateCol = getCol(DATE_COL_ID)
+      if (dateCol?.value) {
+        try {
+          const dv = JSON.parse(dateCol.value)
+          if (dv?.date) {
+            const d = new Date(dv.date)
+            if (!isNaN(d.getTime())) displayDate = ' on ' + d.toLocaleDateString('en-GB')
+          }
+        } catch {}
+      } else if (dateCol?.text) {
+        const d = new Date(dateCol.text)
+        if (!isNaN(d.getTime())) displayDate = ' on ' + d.toLocaleDateString('en-GB')
+      }
+
+      if (muTrue) {
+        await sendPushToArtistsByType('MUA', {
+          title: 'New Independent Guest',
+          body: `${item.name}${displayDate}`,
+          icon: '/icon-192.png',
+          badge: '/icon-192.png',
+          url: '/get-clients',
+          data: { type: 'new_proposal', board: 'Independent Guests', itemId: String(item.id) },
+        })
+      }
+      if (hsTrue) {
+        await sendPushToArtistsByType('HS', {
+          title: 'New Independent Guest',
+          body: `${item.name}${displayDate}`,
+          icon: '/icon-192.png',
+          badge: '/icon-192.png',
+          url: '/get-clients',
+          data: { type: 'new_proposal', board: 'Independent Guests', itemId: String(item.id) },
+        })
+      }
+    } catch (e) {
+      console.error('[monday:create_pulse:guests] failed', e)
+    }
+    return
+  }
+
+  // Clients board: existing logic
   if (event?.boardId !== BOARD_CLIENTS) {
     return
   }

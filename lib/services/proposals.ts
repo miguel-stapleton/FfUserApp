@@ -20,6 +20,13 @@ const MONDAY_HS_BOARD_ID = process.env.MONDAY_HS_BOARD_ID
 const MONDAY_MSTATUS_COLUMN_ID = process.env.MONDAY_MSTATUS_COLUMN_ID || 'project_status'
 const MONDAY_HSTATUS_COLUMN_ID = process.env.MONDAY_HSTATUS_COLUMN_ID || 'dup__of_mstatus'
 
+// Independent Guests board + columns
+const MONDAY_INDEPENDENT_GUESTS_BOARD_ID = '1913629164'
+const MONDAY_INDEP_GUESTS_EVENT_DATE_COL = 'date6'
+const MONDAY_INDEP_GUESTS_LOCATION_COL = 'short_text1'
+const MONDAY_INDEP_GUESTS_MUA_BOOL_COL = 'booleancr88sq6z' // MU?
+const MONDAY_INDEP_GUESTS_HS_BOOL_COL = 'booleany6w6zo7p'  // H? / False
+
 // Artist name mappings for "copy paste para whatsapp" patterns
 const WHATSAPP_PATTERNS: Record<string, string> = {
   'Lola': 'copy paste para whatsapp de Lola',
@@ -460,6 +467,100 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
           isExpired: false,
         })
       }
+    }
+
+    // Also fetch Independent Guests board per requirements
+    try {
+      let guestItems: any[] = []
+      let gCursor: string | null = null
+      let gHasMore = true
+      while (gHasMore) {
+        const guestsQuery = `
+          query GetGuests($boardId: ID!, $cursor: String) {
+            boards(ids: [$boardId]) {
+              items_page(limit: 100, cursor: $cursor) {
+                cursor
+                items {
+                  id
+                  name
+                  column_values { id text value }
+                }
+              }
+            }
+          }
+        `
+        const guestsResp: any = await axios.post(
+          MONDAY_API_URL,
+          { query: guestsQuery, variables: { boardId: MONDAY_INDEPENDENT_GUESTS_BOARD_ID, cursor: gCursor } },
+          { headers: { 'Authorization': MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
+        )
+        if (guestsResp.data.errors) {
+          console.error('Monday API errors (guests):', guestsResp.data.errors)
+          break
+        }
+        const gBoard = guestsResp.data?.data?.boards?.[0]
+        if (!gBoard?.items_page) break
+        guestItems = guestItems.concat(gBoard.items_page.items || [])
+        gCursor = gBoard.items_page.cursor
+        gHasMore = !!gCursor
+      }
+
+      for (const gItem of guestItems) {
+        const colValues = gItem.column_values || []
+        const muaBool = colValues.find((c: any) => c.id === MONDAY_INDEP_GUESTS_MUA_BOOL_COL)
+        const hsBool = colValues.find((c: any) => c.id === MONDAY_INDEP_GUESTS_HS_BOOL_COL)
+
+        // Parse boolean from JSON value or text
+        const parseBool = (col: any): boolean => {
+          if (!col) return false
+          if (typeof col.text === 'string') {
+            const t = col.text.toLowerCase().trim()
+            if (t === 'true' || t === 'checked') return true
+          }
+          if (col.value) {
+            try {
+              const v = JSON.parse(col.value)
+              if (v && (v.checked === 'true' || v.checked === true)) return true
+            } catch {}
+          }
+          return false
+        }
+
+        const eligible = (artist.type === 'MUA' && parseBool(muaBool)) || (artist.type === 'HS' && parseBool(hsBool))
+        if (!eligible) continue
+
+        // Extract event date and location
+        const dateCol = colValues.find((c: any) => c.id === MONDAY_INDEP_GUESTS_EVENT_DATE_COL)
+        let eventDate = new Date()
+        if (dateCol?.value) {
+          try {
+            const dv = JSON.parse(dateCol.value)
+            if (dv?.date) {
+              const d = new Date(dv.date)
+              if (!isNaN(d.getTime())) eventDate = d
+            }
+          } catch {}
+        } else if (dateCol?.text) {
+          const d = new Date(dateCol.text)
+          if (!isNaN(d.getTime())) eventDate = d
+        }
+        const venueCol = colValues.find((c: any) => c.id === MONDAY_INDEP_GUESTS_LOCATION_COL)
+        const beautyVenue = venueCol?.text || ''
+
+        proposals.push({
+          id: `guest-${gItem.id}`,
+          batchId: 'guest-' + gItem.id,
+          clientName: gItem.name,
+          serviceType: artist.type as any,
+          eventDate,
+          beautyVenue,
+          observations: '',
+          createdAt: new Date(),
+          isExpired: false,
+        })
+      }
+    } catch (guestErr) {
+      console.error('Failed to fetch Independent Guests board:', guestErr)
     }
 
     console.log('Total proposals found:', proposals.length)
