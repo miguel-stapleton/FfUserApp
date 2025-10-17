@@ -27,6 +27,78 @@ const MONDAY_INDEP_GUESTS_LOCATION_COL = 'short_text1'
 const MONDAY_INDEP_GUESTS_MUA_BOOL_COL = 'booleancr88sq6z' // MU?
 const MONDAY_INDEP_GUESTS_HS_BOOL_COL = 'booleany6w6zo7p'  // H? / False
 
+// Polls board (for Independent Guests YES/NO follow-up)
+const MONDAY_POLLS_BOARD_ID = '1952175468'
+const MONDAY_POLLS_ITEM_IDD_COL = 'text_mkr0k74g' // Item IDD column on Polls board
+
+// MUA email -> Polls boolean column id
+const MUA_POLL_COLUMN_BY_EMAIL: Record<string, string> = {
+  'gi.lola@gmail.com': 'boolean_mkqwkp91',
+  'tecadete@gmail.com': 'boolean_mkqwxdsm',
+  'info@miguelstapleton.art': 'boolean_mkqwjvzr',
+  'iaguiarmakeup@gmail.com': 'boolean_mkqwadn2',
+  'anaroma.makeup@gmail.com': 'boolean_mkqw5473',
+  'anaferreira.geral@hotmail.com': 'boolean_mkqwpjnx',
+  'anacatarinanev@gmail.com': 'boolean_mkqw9z4',
+  'ritarnunes.mua@gmail.com': 'boolean_mkqw3err',
+  'sara.jogo@hotmail.com': 'boolean_mkqwhc0d',
+  'filipawahnon.mua@gmail.com': 'boolean_mkqwwwtg',
+}
+
+// HS email -> Polls boolean column id
+const HS_POLL_COLUMN_BY_EMAIL: Record<string, string> = {
+  'hi@letshair.com': 'boolean_mkqwrtzh',
+  'liliapcosta@gmail.com': 'boolean_mkqwm8w8',
+  'andreiadematoshair@gmail.com': 'boolean_mkqw9etg',
+  'riberic@gmail.com': 'boolean_mkqwt8cv',
+  'kseniya.hairstylist@gmail.com': 'boolean_mkqwbra6',
+  'joanacarvalho_@hotmail.com': 'boolean_mkqwx8ve',
+  'olga.amaral.hilario@gmail.com': 'boolean_mkqwnszp',
+}
+
+// Helper: find Polls item by matching Item IDD (guest Monday item id)
+async function findPollsItemIdByGuestId(guestItemId: string): Promise<string | null> {
+  const query = `
+    query FindPollsItem($boardId: ID!, $colId: String!, $value: String!) {
+      items_by_column_values(board_id: $boardId, column_id: $colId, column_value: $value) { id }
+    }
+  `
+  const resp: any = await axios.post(
+    MONDAY_API_URL,
+    { query, variables: { boardId: MONDAY_POLLS_BOARD_ID, colId: MONDAY_POLLS_ITEM_IDD_COL, value: String(guestItemId) } },
+    { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
+  )
+  const items = resp.data?.data?.items_by_column_values || []
+  return items[0]?.id ? String(items[0].id) : null
+}
+
+// Helper: set a boolean column on Polls item
+async function setPollsBoolean(itemId: string, columnId: string, checked: boolean): Promise<void> {
+  const mutation = `
+    mutation SetBool($boardId: ID!, $itemId: ID!, $columnId: String!, $val: JSON!) {
+      change_column_value(board_id: $boardId, item_id: $itemId, column_id: $columnId, value: $val) { id }
+    }
+  `
+  const value = JSON.stringify({ checked: checked ? 'true' : 'false' })
+  await axios.post(
+    MONDAY_API_URL,
+    { query: mutation, variables: { boardId: MONDAY_POLLS_BOARD_ID, itemId, columnId, val: value } },
+    { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
+  )
+}
+
+// Helper: add an update (comment) on a Monday item (Guests board)
+async function addGuestUpdate(itemId: string, body: string): Promise<void> {
+  const mutation = `
+    mutation AddUpdate($itemId: ID!, $body: String!) { create_update (item_id: $itemId, body: $body) { id } }
+  `
+  await axios.post(
+    MONDAY_API_URL,
+    { query: mutation, variables: { itemId, body } },
+    { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
+  )
+}
+
 // Artist name mappings for "copy paste para whatsapp" patterns
 const WHATSAPP_PATTERNS: Record<string, string> = {
   'Lola': 'copy paste para whatsapp de Lola',
@@ -408,6 +480,8 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
         'Travelling fee + inquire the artist',
         'undecided- inquire availabilities',
         'inquire second option',
+        // HS variant label
+        'Travelling fee + inquire second option',
       ]
 
       if (!status || !targetsExact.includes(status)) {
@@ -415,7 +489,7 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
       }
 
       // Skip if artist has already responded to this client (persisted in DB)
-      if (respondedClientIds.has(item.id)) {
+      if (respondedClientIds.has(String(item.id))) {
         console.log('Skipping client (already responded):', brideName, 'Item ID:', item.id)
         continue
       }
@@ -433,7 +507,7 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
       } else if (status === 'undecided- inquire availabilities') {
         // Show all
         shouldInclude = true
-      } else if (status === 'inquire second option') {
+      } else if (status === 'inquire second option' || status === 'Travelling fee + inquire second option') {
         // Exclude if artist is marked as unavailable
         const unavailablePattern = `${artistFirstName} is not available....give us a second!`
         const isMarkedUnavailable = updates.some((update: any) =>
@@ -668,7 +742,7 @@ export async function respondToProposal({
   // Independent Guests ID: 'guest-<id>'
   if (proposalId.startsWith('guest-')) {
     const guestItemId = proposalId.replace('guest-', '')
-
+    
     // Ensure ClientService for Independent Guests exists (build minimal data from Guests board)
     let clientService = await prisma.clientService.findFirst({
       where: { mondayClientItemId: guestItemId, service: actor.type as any },
@@ -727,6 +801,28 @@ export async function respondToProposal({
       entityId: clientService.id,
       details: { mondayClientItemId: guestItemId, response, artistEmail: actor.email },
     })
+
+    // Apply Monday side-effects for guests: YES -> set Polls boolean TRUE; NO -> post update
+    try {
+      if (response === 'YES') {
+        const pollsItemId = await findPollsItemIdByGuestId(guestItemId)
+        if (pollsItemId) {
+          const colId = actor.type === 'MUA' ? MUA_POLL_COLUMN_BY_EMAIL[actor.email] : HS_POLL_COLUMN_BY_EMAIL[actor.email]
+          if (colId) {
+            await setPollsBoolean(pollsItemId, colId, true)
+          } else {
+            console.warn('[guests] No Polls column mapping for', actor.email)
+          }
+        } else {
+          console.warn('[guests] Polls item not found for guest', guestItemId)
+        }
+      } else if (response === 'NO') {
+        const artistName = actor.user?.username || actor.email
+        await addGuestUpdate(guestItemId, `${artistName} não pode`)
+      }
+    } catch (mErr) {
+      console.error('[guests] Failed to apply Polls/Update actions:', mErr)
+    }
     return
   }
 

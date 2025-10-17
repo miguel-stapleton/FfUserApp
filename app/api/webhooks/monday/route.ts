@@ -134,21 +134,27 @@ async function handleCreatePulse(event: any) {
       const muTrue = parseBool(getCol(MU_BOOL_ID))
       const hsTrue = parseBool(getCol(HS_BOOL_ID))
 
-      // Extract event date for nicer push text
+      // Extract event date and require future date
       let displayDate = ''
+      let eventDate: Date | null = null
       const dateCol = getCol(DATE_COL_ID)
       if (dateCol?.value) {
         try {
           const dv = JSON.parse(dateCol.value)
           if (dv?.date) {
             const d = new Date(dv.date)
-            if (!isNaN(d.getTime())) displayDate = ' on ' + d.toLocaleDateString('en-GB')
+            if (!isNaN(d.getTime())) eventDate = d
           }
         } catch {}
       } else if (dateCol?.text) {
         const d = new Date(dateCol.text)
-        if (!isNaN(d.getTime())) displayDate = ' on ' + d.toLocaleDateString('en-GB')
+        if (!isNaN(d.getTime())) eventDate = d
       }
+      // Only push for future dates
+      if (!eventDate || eventDate.getTime() <= Date.now()) {
+        return
+      }
+      displayDate = ' on ' + eventDate.toLocaleDateString('en-GB')
 
       // Prefer Client's Name for display
       const nameCol = getCol(NAME_COL_ID)
@@ -401,60 +407,72 @@ export async function POST(request: NextRequest) {
         const nowChecked = getChecked(value)
         const prevChecked = getChecked(previousValue)
         if (nowChecked && !prevChecked && itemId) {
-          // Fetch item to read name/date for message
-          const q = `
-            query GetItem($itemId: ID!) {
-              items(ids: [$itemId]) {
-                id
-                name
-                column_values { id text value }
+          try {
+            // Fetch item to read name/date for message
+            const q = `
+              query GetItem($itemId: ID!) {
+                items(ids: [$itemId]) {
+                  id
+                  name
+                  column_values { id text value }
+                }
               }
+            `
+            const r = await axios.post(
+              'https://api.monday.com/v2',
+              { query: q, variables: { itemId } },
+              { headers: { Authorization: process.env.MONDAY_API_TOKEN || '', 'Content-Type': 'application/json' } }
+            )
+            const it = r.data?.data?.items?.[0]
+            const cols: any[] = it?.column_values || []
+            const getCol = (id: string) => cols.find(c => c.id === id)
+
+            // Prefer Client's Name (short_text8) for display if present
+            const nameCol = getCol('short_text8')
+            const displayName = (nameCol?.text || '').trim() || it?.name || 'Independent Guest'
+
+            // Event date must be in the future to send push
+            let displayDate = ''
+            let eventDate: Date | null = null
+            const dCol = getCol(DATE_COL_ID)
+            if (dCol?.value) {
+              try {
+                const dv = JSON.parse(dCol.value)
+                if (dv?.date) {
+                  const d = new Date(dv.date)
+                  if (!isNaN(d.getTime())) eventDate = d
+                }
+              } catch {}
+            } else if (dCol?.text) {
+              const d = new Date(dCol.text)
+              if (!isNaN(d.getTime())) eventDate = d
             }
-          `
-          const r = await axios.post(
-            'https://api.monday.com/v2',
-            { query: q, variables: { itemId } },
-            { headers: { Authorization: process.env.MONDAY_API_TOKEN || '', 'Content-Type': 'application/json' } }
-          )
-          const it = r.data?.data?.items?.[0]
-          const cols: any[] = it?.column_values || []
-          const getCol = (id: string) => cols.find(c => c.id === id)
-          const nameCol = getCol('short_text8')
-          const displayName = (nameCol?.text || '').trim() || it?.name || 'Independent Guest'
+            if (!eventDate || eventDate.getTime() <= Date.now()) {
+              return NextResponse.json({ success: true, note: 'guest boolean flip ignored (past/no date)' })
+            }
+            displayDate = ' on ' + eventDate.toLocaleDateString('en-GB')
 
-          let displayDate = ''
-          const dCol = getCol(DATE_COL_ID)
-          if (dCol?.value) {
-            try {
-              const dv = JSON.parse(dCol.value)
-              if (dv?.date) {
-                const d = new Date(dv.date)
-                if (!isNaN(d.getTime())) displayDate = ' on ' + d.toLocaleDateString('en-GB')
-              }
-            } catch {}
-          } else if (dCol?.text) {
-            const d = new Date(dCol.text)
-            if (!isNaN(d.getTime())) displayDate = ' on ' + d.toLocaleDateString('en-GB')
-          }
-
-          if (columnId === MU_BOOL_ID) {
-            await sendPushToArtistsByType('MUA', {
-              title: 'New Independent Guest',
-              body: `${displayName}${displayDate}`,
-              icon: '/icon-192.png',
-              badge: '/icon-192.png',
-              url: '/get-clients',
-              data: { type: 'new_proposal', board: 'Independent Guests', itemId: String(itemId) },
-            })
-          } else {
-            await sendPushToArtistsByType('HS', {
-              title: 'New Independent Guest',
-              body: `${displayName}${displayDate}`,
-              icon: '/icon-192.png',
-              badge: '/icon-192.png',
-              url: '/get-clients',
-              data: { type: 'new_proposal', board: 'Independent Guests', itemId: String(itemId) },
-            })
+            if (columnId === MU_BOOL_ID) {
+              await sendPushToArtistsByType('MUA', {
+                title: 'New Independent Guest',
+                body: `${displayName}${displayDate}`,
+                icon: '/icon-192.png',
+                badge: '/icon-192.png',
+                url: '/get-clients',
+                data: { type: 'new_proposal', board: 'Independent Guests', itemId: String(itemId) },
+              })
+            } else if (columnId === HS_BOOL_ID) {
+              await sendPushToArtistsByType('HS', {
+                title: 'New Independent Guest',
+                body: `${displayName}${displayDate}`,
+                icon: '/icon-192.png',
+                badge: '/icon-192.png',
+                url: '/get-clients',
+                data: { type: 'new_proposal', board: 'Independent Guests', itemId: String(itemId) },
+              })
+            }
+          } catch (e) {
+            console.error('[monday:update_column_value:guests] failed', e)
           }
         }
       }
