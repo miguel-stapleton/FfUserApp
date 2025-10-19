@@ -443,7 +443,16 @@ export async function getClientFromMonday(itemId: string): Promise<MondayClient 
 
     return {
       mondayItemId: item.id,
-      name: item.name,
+      // Prefer Bride's Name (short_text8) over the raw item title for display
+      name: ((): string => {
+        try {
+          // getColumnValue can read by id; titles are not guaranteed in this query
+          const b = getColumnValue('short_text8')
+          return (b && typeof b === 'string' && b.trim().length > 0) ? b : item.name
+        } catch {
+          return item.name
+        }
+      })(),
       email: getColumnValue('email4', 'email'),
       phone: getColumnValue('phone', 'phone'),
       eventDate: eventDate || new Date(),
@@ -572,7 +581,16 @@ export async function getAllClientsFromMonday(): Promise<MondayClient[]> {
 
         clients.push({
           mondayItemId: item.id,
-          name: item.name,
+          // Prefer Bride's Name (short_text8) over the raw item title for display
+          name: ((): string => {
+            try {
+              const col = item.column_values?.find((c: any) => c?.id === 'short_text8')
+              const b = col?.text
+              return (b && typeof b === 'string' && b.trim().length > 0) ? b : item.name
+            } catch {
+              return item.name
+            }
+          })(),
           email: getColumnValue('email4', 'email'),
           phone: getColumnValue('phone', 'phone'),
           eventDate: eventDate || new Date(),
