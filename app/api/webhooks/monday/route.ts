@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import axios from 'axios'
 import { prisma } from '@/lib/prisma'
 import { upsertClientServiceFromMonday } from '@/lib/services/clients'
-import { createBatchAndProposals } from '@/lib/services/proposals'
+import { createBatchAndProposals, createBatchForSpecificArtists } from '@/lib/services/proposals'
 import { logAudit } from '@/lib/audit'
 import { sendNewProposalNotification, sendPushToArtistsByType } from '@/lib/push'
 import { getClientFromMonday, getItemUpdates, getArtistByMondayId } from '@/lib/monday'
@@ -37,6 +37,8 @@ function normalizeStatus(s: string | undefined | null) {
 
 const TARGET_UNDECIDED = normalizeStatus('undecided – inquire availabilities')
 const TARGET_TRAVELLING = normalizeStatus('Travelling fee + inquire the artist')
+const TARGET_SECOND_OPTION_M = normalizeStatus('inquire second option')
+const TARGET_SECOND_OPTION_H = normalizeStatus('Travelling fee + inquire second option')
 const WEBHOOK_VERSION = 'monday-webhook-v3-2025-10-11-12:56'
 
 // Name -> email mapping for "copy paste para whatsapp de ..."
@@ -594,6 +596,14 @@ async function handleStatusChange(
       await handleUndecidedStatus(mondayItemId, serviceType, serviceTypeEnum, timestamp)
     }
 
+    // Handle "inquire second option" (MUA) and HS variant
+    if (serviceType === 'MUA' && newStatus === TARGET_SECOND_OPTION_M) {
+      await handleSecondOptionStatus(mondayItemId, 'MUA', serviceTypeEnum, timestamp)
+    }
+    if (serviceType === 'HS' && newStatus === TARGET_SECOND_OPTION_H) {
+      await handleSecondOptionStatus(mondayItemId, 'HS', serviceTypeEnum, timestamp)
+    }
+
     // Handle "Travelling fee + inquire the artist"
     if (newStatus === TARGET_TRAVELLING) {
       await handleTravellingFeeStatus(mondayItemId, serviceType, serviceTypeEnum, timestamp)
@@ -604,6 +614,104 @@ async function handleStatusChange(
     // Do not write an AuditLog row here because entityId would not reference ClientService
     // (AuditLog.entityId has an FK to ClientService.id). Use console for visibility only.
   }
+}
+
+// Handle "second option" status: broadcast to all except the exception account referenced by the whatsapp phrase
+async function handleSecondOptionStatus(
+  mondayItemId: string,
+  serviceType: 'MUA' | 'HS',
+  serviceTypeEnum: PrismaServiceType,
+  timestamp: Date
+) {
+  console.log('[monday:webhook] Handling SECOND_OPTION for', { mondayItemId, serviceType })
+
+  // Resolve exception email from updates
+  let attempts = 0
+  let exceptionEmail: string | null = null
+  const PRIMARY_MAPPING = serviceType === 'MUA' ? NAME_TO_EMAIL : NAME_TO_EMAIL_HS
+  const phrase = 'copy paste para whatsapp de '
+
+  while (attempts < 3 && !exceptionEmail) {
+    attempts++
+    const updates = await getItemUpdates(mondayItemId)
+    const combinedTexts = updates
+      .map(u => normalizeText(u.text_body || u.body || ''))
+      .filter(Boolean)
+    for (const text of combinedTexts) {
+      if (text.includes(phrase)) {
+        const tail = text.slice(text.indexOf(phrase) + phrase.length).trim()
+        for (const nameKey of Object.keys(PRIMARY_MAPPING)) {
+          const keyNorm = normalizeText(nameKey)
+          if (tail.startsWith(keyNorm) || tail.includes(` ${keyNorm}`) || tail.includes(`${keyNorm} `)) {
+            exceptionEmail = PRIMARY_MAPPING[nameKey]
+            break
+          }
+        }
+        if (exceptionEmail) break
+      }
+    }
+    if (!exceptionEmail && attempts < 3) await new Promise(res => setTimeout(res, 2000))
+  }
+
+  // Get target artists = all active of type minus exception (if found)
+  const artists = await prisma.artist.findMany({ where: { type: serviceType, active: true } })
+  const filtered = exceptionEmail ? artists.filter(a => a.email !== exceptionEmail) : artists
+  if (filtered.length === 0) {
+    console.log(`[monday:webhook] No active ${serviceType} artists (after exception filter) for second option`)
+    return
+  }
+
+  // Ensure ClientService exists; if it fails, send a broadcast push as a fallback
+  let clientServiceId: string
+  try {
+    clientServiceId = await upsertClientServiceFromMonday(mondayItemId, serviceTypeEnum as any)
+  } catch (e) {
+    console.warn('[monday:webhook] upsertClientServiceFromMonday failed (second option), sending broadcast fallback', e)
+    await sendPushToArtistsByType(serviceType, {
+      title: 'New Proposal Available',
+      body: 'A new client needs availability.',
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
+      url: '/get-clients',
+      data: { type: 'new_proposal' },
+    })
+    return
+  }
+
+  // Create BROADCAST batch for filtered artists only
+  const { batchId, proposalCount } = await createBatchForSpecificArtists(
+    clientServiceId,
+    'BROADCAST',
+    'UNDECIDED',
+    filtered.map(a => a.id)
+  )
+
+  // Log audit
+  await logAudit({
+    action: 'STARTED',
+    entityType: 'BATCH',
+    entityId: clientServiceId,
+    details: {
+      batchId,
+      mode: 'BROADCAST',
+      serviceType,
+      proposalCount,
+      exceptionEmail: exceptionEmail || null,
+      timestamp: timestamp.toISOString(),
+      note: 'BROADCAST second option (excluded exception account if found)',
+    },
+  })
+
+  // Push to filtered artists
+  const clientData = await getClientFromMonday(mondayItemId)
+  await sendNewProposalNotification(
+    filtered.map(a => a.id),
+    clientData?.name || 'New Client',
+    serviceTypeEnum,
+    clientData?.eventDate || null
+  )
+
+  console.log(`Created BROADCAST batch ${batchId} for ${filtered.length} ${serviceType} artists (second option)`) 
 }
 
 async function handleUndecidedStatus(
@@ -812,7 +920,7 @@ async function handleTravellingFeeStatus(
       chosenArtistEmail: artist.email,
       proposalCount,
       timestamp: timestamp.toISOString(),
-      note: 'SINGLE batch - no 24h auto-timeout until status changes to undecided',
+      note: 'SINGLE batch started from create_pulse Travelling fee',
     },
   })
 

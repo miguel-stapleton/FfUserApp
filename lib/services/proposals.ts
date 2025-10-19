@@ -112,6 +112,12 @@ const WHATSAPP_PATTERNS: Record<string, string> = {
   'Ana Roma': 'copy paste para whatsapp de Ana Roma',
   'Sara': 'copy paste para whatsapp de Sara',
   'Olga H': 'copy paste para whatsapp de Olga H',
+  'Agne': 'copy paste para whatsapp de Agne',
+  'Lília': 'copy paste para whatsapp de Lília',
+  'Andreia': 'copy paste para whatsapp de Andreia',
+  'Eric': 'copy paste para whatsapp de Eric',
+  'Oksana': 'copy paste para whatsapp de Oksana',
+  'Joana': 'copy paste para whatsapp de Joana',
 }
 
 // Get artist first name for matching
@@ -508,12 +514,16 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
         // Show all
         shouldInclude = true
       } else if (status === 'inquire second option' || status === 'Travelling fee + inquire second option') {
-        // Exclude if artist is marked as unavailable
-        const unavailablePattern = `${artistFirstName} is not available....give us a second!`
-        const isMarkedUnavailable = updates.some((update: any) =>
-          update.text_body?.includes(unavailablePattern)
-        )
-        shouldInclude = !isMarkedUnavailable
+        // New rule: show to all except the "exception account" whose whatsapp phrase appears in updates
+        // If the updates contain the logged-in artist's whatsapp phrase, exclude them; otherwise include
+        const myWhatsappPattern = whatsappPattern
+        if (myWhatsappPattern) {
+          const isException = updates.some((update: any) => update.text_body?.includes(myWhatsappPattern))
+          shouldInclude = !isException
+        } else {
+          // If we couldn't build a pattern, default to include
+          shouldInclude = true
+        }
       }
 
       if (shouldInclude) {
