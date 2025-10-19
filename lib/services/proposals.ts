@@ -867,6 +867,26 @@ export async function respondToProposal({
       entityId: clientServiceId,
       details: { mondayClientItemId: mondayId, response, artistEmail: actor.email },
     })
+
+    // Brides: on YES, also mark Polls board for this client item id
+    if (response === 'YES') {
+      try {
+        // Reuse guest finder for Polls by Item IDD; it matches by the same column
+        const pollsItemId = await findPollsItemIdByGuestId(mondayId)
+        if (pollsItemId) {
+          const colId = actor.type === 'MUA' ? MUA_POLL_COLUMN_BY_EMAIL[actor.email] : HS_POLL_COLUMN_BY_EMAIL[actor.email]
+          if (colId) {
+            await setPollsBoolean(pollsItemId, colId, true)
+          } else {
+            console.warn('[brides] No Polls column mapping for', actor.email)
+          }
+        } else {
+          console.warn('[brides] Polls item not found for client', mondayId)
+        }
+      } catch (e) {
+        console.error('[brides] Failed to update Polls board on YES:', e)
+      }
+    }
     return
   }
 
