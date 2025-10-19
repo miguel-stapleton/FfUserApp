@@ -56,35 +56,79 @@ const HS_POLL_COLUMN_BY_EMAIL: Record<string, string> = {
   'olga.amaral.hilario@gmail.com': 'boolean_mkqwnszp',
 }
 
-// Helper: find Polls item by matching Item IDD (guest Monday item id)
+// Helper: find Polls item by matching Item IDD (guest/bride Monday item id)
 async function findPollsItemIdByGuestId(guestItemId: string): Promise<string | null> {
-  const query = `
+  const base = String(guestItemId).trim()
+  const candidates = [base, `monday-${base}`]
+
+  // 1) Try exact matches via items_by_column_values for each candidate
+  const exactQuery = `
     query FindPollsItem($boardId: ID!, $colId: String!, $value: String!) {
       items_by_column_values(board_id: $boardId, column_id: $colId, column_value: $value) { id }
     }
   `
-  const resp: any = await axios.post(
-    MONDAY_API_URL,
-    { query, variables: { boardId: MONDAY_POLLS_BOARD_ID, colId: MONDAY_POLLS_ITEM_IDD_COL, value: String(guestItemId) } },
-    { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
-  )
-  const items = resp.data?.data?.items_by_column_values || []
-  for (const it of items) {
-    const cv = (it.column_values || []).find((c: any) => c.id === MONDAY_POLLS_ITEM_IDD_COL)
-    // Prefer explicit text, but also parse JSON value if present
-    let t = (cv?.text || '').trim()
-    if ((!t || t.length === 0) && cv?.value) {
-      try {
-        const parsed = JSON.parse(cv.value)
-        const pv = (parsed?.text || parsed?.value || '').toString().trim()
-        if (pv) t = pv
-      } catch {}
-    }
-    if (!t) continue
-    if (String(guestItemId) === t) {
-      return String(it.id)
+  for (const value of candidates) {
+    try {
+      const resp: any = await axios.post(
+        MONDAY_API_URL,
+        { query: exactQuery, variables: { boardId: MONDAY_POLLS_BOARD_ID, colId: MONDAY_POLLS_ITEM_IDD_COL, value } },
+        { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
+      )
+      const items = resp.data?.data?.items_by_column_values || []
+      if (Array.isArray(items) && items.length > 0 && items[0]?.id) {
+        return String(items[0].id)
+      }
+    } catch (e) {
+      console.warn('[polls] items_by_column_values lookup failed for', value, e)
     }
   }
+
+  // 2) Fallback: scan items_page and match the Item IDD column text/value loosely
+  try {
+    let cursor: string | null = null
+    while (true) {
+      const scanQuery = `
+        query ScanPolls($boardId: ID!, $cursor: String) {
+          boards(ids: [$boardId]) {
+            items_page(limit: 100, cursor: $cursor) {
+              cursor
+              items { id column_values { id text value } }
+            }
+          }
+        }
+      `
+      const scanResp: any = await axios.post(
+        MONDAY_API_URL,
+        { query: scanQuery, variables: { boardId: MONDAY_POLLS_BOARD_ID, cursor } },
+        { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
+      )
+      const page = scanResp.data?.data?.boards?.[0]?.items_page
+      if (!page) break
+      const items = page.items || []
+      for (const it of items) {
+        const cv = (it.column_values || []).find((c: any) => c.id === MONDAY_POLLS_ITEM_IDD_COL)
+        // Prefer explicit text, but also parse JSON value if present
+        let t = (cv?.text || '').toString().trim()
+        if ((!t || t.length === 0) && cv?.value) {
+          try {
+            const parsed = JSON.parse(cv.value)
+            const pv = (parsed?.text || parsed?.value || '').toString().trim()
+            if (pv) t = pv
+          } catch {}
+        }
+        if (!t) continue
+        const norm = t.trim()
+        if (candidates.includes(norm) || norm.includes(base)) {
+          return String(it.id)
+        }
+      }
+      cursor = page.cursor
+      if (!cursor) break
+    }
+  } catch (e) {
+    console.warn('[polls] items_page scan failed', e)
+  }
+
   return null
 }
 
@@ -904,11 +948,15 @@ export async function respondToProposal({
       details: { mondayClientItemId: mondayId, response, artistEmail: actor.email },
     })
 
-    // Brides: on YES, also mark Polls board for this client item id
+    // Brides: on YES, also mark Polls board for this client item id (with brief retry for eventual consistency)
     if (response === 'YES') {
       try {
-        // Reuse guest finder for Polls by Item IDD; it matches by the same column
-        const pollsItemId = await findPollsItemIdByGuestId(mondayId)
+        let pollsItemId: string | null = null
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          pollsItemId = await findPollsItemIdByGuestId(mondayId)
+          if (pollsItemId) break
+          await new Promise(res => setTimeout(res, 1000))
+        }
         if (pollsItemId) {
           const colId = actor.type === 'MUA' ? MUA_POLL_COLUMN_BY_EMAIL[actor.email] : HS_POLL_COLUMN_BY_EMAIL[actor.email]
           if (colId) {
