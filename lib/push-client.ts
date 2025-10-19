@@ -35,9 +35,16 @@ export class PushNotificationManager {
     }
 
     try {
-      this.registration = await navigator.serviceWorker.register('/service-worker.js', {
-        scope: '/',
-      })
+      const swUrl = '/sw.js'
+      // Preflight: ensure sw.js exists in this deployment
+      try {
+        const resp = await fetch(swUrl, { cache: 'no-store' })
+        if (!resp.ok) {
+          console.warn('Service worker not found at /sw.js; ensure public/sw.js is deployed')
+        }
+      } catch {}
+
+      this.registration = await navigator.serviceWorker.register(swUrl, { scope: '/' })
 
       console.log('Service Worker registered:', this.registration)
       return this.registration

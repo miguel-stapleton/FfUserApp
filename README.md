@@ -80,8 +80,10 @@ BACKOFFICE_PASSWORD="secure_admin_password"
 
 ### PWA Push Notifications
 ```env
-NEXT_PUBLIC_VAPID_PUBLIC_KEY="your_vapid_public_key"
-VAPID_PRIVATE_KEY="your_vapid_private_key"
+# Web Push VAPID keys (server and client)
+VAPID_PUBLIC_KEY="your_vapid_public_key"        # used by server in lib/push.ts
+VAPID_PRIVATE_KEY="your_vapid_private_key"      # used by server in lib/push.ts
+NEXT_PUBLIC_VAPID_PUBLIC_KEY="your_vapid_public_key"  # used by browser to subscribe
 VAPID_SUBJECT="mailto:your-email@domain.com"
 ```
 **Source**: Generate VAPID keys using web-push library:
@@ -180,6 +182,26 @@ Use the debug panel at `/debug` (BACKOFFICE only) to manually trigger deadline p
 - Use browser dev tools → Application → Service Workers
 - Check notification permissions in browser settings
 - Test with debug panel batch creation
+
+## Android Quick-Start (Artists)
+
+Follow these steps on Android (Chrome):
+
+1. Open the app URL over HTTPS in Chrome.
+2. Tap the banner/button "Enable notifications" if shown, or go to the menu and enable from settings.
+3. When prompted, allow notifications.
+4. Optional: Install the app (Chrome menu → "Add to Home screen").
+5. You should now receive push notifications when new proposals are available.
+
+Troubleshooting on Android:
+
+- Open Chrome → Settings → Site settings → Notifications → ensure the site is Allowed.
+- In the app, open DevTools → Application → Service Workers and verify `/sw.js` is active and running.
+- Check DevTools Console for log lines like `Service Worker registered:` from `lib/push-client.ts`.
+- If you still don’t receive pushes, try re-enabling notifications: unsubscribe (if implemented), then enable again to refresh the subscription.
+- Ensure these env vars are configured on the deployment:
+  - `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` (server)
+  - `NEXT_PUBLIC_VAPID_PUBLIC_KEY` (client)
 
 ## 📊 Data Model Overview
 
