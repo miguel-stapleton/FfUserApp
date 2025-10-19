@@ -69,7 +69,23 @@ async function findPollsItemIdByGuestId(guestItemId: string): Promise<string | n
     { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
   )
   const items = resp.data?.data?.items_by_column_values || []
-  return items[0]?.id ? String(items[0].id) : null
+  for (const it of items) {
+    const cv = (it.column_values || []).find((c: any) => c.id === MONDAY_POLLS_ITEM_IDD_COL)
+    // Prefer explicit text, but also parse JSON value if present
+    let t = (cv?.text || '').trim()
+    if ((!t || t.length === 0) && cv?.value) {
+      try {
+        const parsed = JSON.parse(cv.value)
+        const pv = (parsed?.text || parsed?.value || '').toString().trim()
+        if (pv) t = pv
+      } catch {}
+    }
+    if (!t) continue
+    if (String(guestItemId) === t) {
+      return String(it.id)
+    }
+  }
+  return null
 }
 
 // Helper: set a boolean column on Polls item
@@ -775,8 +791,18 @@ export async function respondToProposal({
       let weddingDate = new Date()
       const dCol = getCol(MONDAY_INDEP_GUESTS_EVENT_DATE_COL)
       if (dCol?.value) {
-        try { const dv = JSON.parse(dCol.value); if (dv?.date) { const d = new Date(dv.date); if (!isNaN(d.getTime())) weddingDate = d } } catch {}
-      } else if (dCol?.text) { const d = new Date(dCol.text); if (!isNaN(d.getTime())) weddingDate = d }
+        try {
+          const dv = JSON.parse(dCol.value)
+          if (dv?.date && typeof dv.date === 'string') {
+            const d = new Date(dv.date + 'T00:00:00')
+            if (!isNaN(d.getTime())) weddingDate = d
+          }
+        } catch {}
+      } else if (dCol?.text) {
+        const d = new Date(dCol.text)
+        if (!isNaN(d.getTime())) weddingDate = d
+      }
+
       const venueCol = getCol(MONDAY_INDEP_GUESTS_LOCATION_COL)
       const beautyVenue = venueCol?.text || ''
       const nameCol = getCol('short_text8')
