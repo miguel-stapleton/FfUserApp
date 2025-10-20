@@ -84,135 +84,8 @@ const HS_NAME_BY_EMAIL: Record<string, string> = {
   'olga.amaral.hilario@gmail.com': 'Olga H',
 }
 
-// Helper: find Polls item by matching Item IDD (guest/bride Monday item id)
-async function findPollsItemIdByGuestId(guestItemId: string): Promise<string | null> {
-  const base = String(guestItemId).trim()
-  const candidates = [base, `monday-${base}`]
-
-  // 1) Try exact matches via items_by_column_values for each candidate
-  const exactQuery = `
-    query FindPollsItem($boardId: ID!, $colId: String!, $value: String!) {
-      items_by_column_values(board_id: $boardId, column_id: $colId, column_value: $value) { id }
-    }
-  `
-  for (const value of candidates) {
-    try {
-      const resp: any = await axios.post(
-        MONDAY_API_URL,
-        { query: exactQuery, variables: { boardId: MONDAY_POLLS_BOARD_ID, colId: MONDAY_POLLS_ITEM_IDD_COL, value } },
-        { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
-      )
-      const items = resp.data?.data?.items_by_column_values || []
-      if (Array.isArray(items) && items.length > 0 && items[0]?.id) {
-        return String(items[0].id)
-      }
-    } catch (e) {
-      console.warn('[polls] items_by_column_values lookup failed for', value, e)
-    }
-  }
-
-  // 2) Fallback: scan items_page and match the Item IDD column text/value loosely
-  try {
-    let cursor: string | null = null
-    while (true) {
-      const scanQuery = `
-        query ScanPolls($boardId: ID!, $cursor: String) {
-          boards(ids: [$boardId]) {
-            items_page(limit: 100, cursor: $cursor) {
-              cursor
-              items { id column_values { id text value } }
-            }
-          }
-        }
-      `
-      const scanResp: any = await axios.post(
-        MONDAY_API_URL,
-        { query: scanQuery, variables: { boardId: MONDAY_POLLS_BOARD_ID, cursor } },
-        { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
-      )
-      const page = scanResp.data?.data?.boards?.[0]?.items_page
-      if (!page) break
-      const items = page.items || []
-      for (const it of items) {
-        const cv = (it.column_values || []).find((c: any) => c.id === MONDAY_POLLS_ITEM_IDD_COL)
-        // Prefer explicit text, but also parse JSON value if present
-        let t = (cv?.text || '').toString().trim()
-        if ((!t || t.length === 0) && cv?.value) {
-          try {
-            const parsed = JSON.parse(cv.value)
-            const pv = (parsed?.text || parsed?.value || '').toString().trim()
-            if (pv) t = pv
-          } catch {}
-        }
-        if (!t) continue
-        const norm = t.trim()
-        if (candidates.includes(norm) || norm.includes(base)) {
-          return String(it.id)
-        }
-      }
-      cursor = page.cursor
-      if (!cursor) break
-    }
-  } catch (e) {
-    console.warn('[polls] items_page scan failed', e)
-  }
-
-  return null
-}
-
-// Helper: set a boolean column on Polls item
-async function setPollsBoolean(itemId: string, columnId: string, checked: boolean): Promise<void> {
-  const mutation = `
-    mutation SetBool($boardId: ID!, $itemId: ID!, $columnId: String!, $val: JSON!) {
-      change_column_value(board_id: $boardId, item_id: $itemId, column_id: $columnId, value: $val) { id }
-    }
-  `
-  const value = JSON.stringify({ checked: checked ? 'true' : 'false' })
-  await axios.post(
-    MONDAY_API_URL,
-    { query: mutation, variables: { boardId: MONDAY_POLLS_BOARD_ID, itemId, columnId, val: value } },
-    { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
-  )
-}
-
-// Helper: add an update (comment) on a Monday item (Guests board)
-async function addGuestUpdate(itemId: string, body: string): Promise<void> {
-  const mutation = `
-    mutation AddUpdate($itemId: ID!, $body: String!) { create_update (item_id: $itemId, body: $body) { id } }
-  `
-  await axios.post(
-    MONDAY_API_URL,
-    { query: mutation, variables: { itemId, body } },
-    { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
-  )
-}
-
-// Helper: add an update (comment) on a Monday item (generic)
-async function addItemUpdate(itemId: string, body: string): Promise<void> {
-  const mutation = `
-    mutation AddUpdate($itemId: ID!, $body: String!) { create_update (item_id: $itemId, body: $body) { id } }
-  `
-  await axios.post(
-    MONDAY_API_URL,
-    { query: mutation, variables: { itemId, body } },
-    { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
-  )
-}
-
-// Helper: set a Status/Color label on Clients board
-async function setClientsStatusLabel(itemId: string, columnId: string, label: string): Promise<void> {
-  const mutation = `
-    mutation SetStatus($boardId: ID!, $itemId: ID!, $columnId: String!, $val: JSON!) {
-      change_column_value(board_id: $boardId, item_id: $itemId, column_id: $columnId, value: $val) { id }
-    }
-  `
-  const value = JSON.stringify({ label })
-  await axios.post(
-    MONDAY_API_URL,
-    { query: mutation, variables: { boardId: MONDAY_BOARD_ID, itemId, columnId, val: value } },
-    { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
-  )
-}
+// Normalize emails for mapping lookups
+const normEmail = (e?: string | null) => (e || '').trim().toLowerCase()
 
 // Artist name mappings for "copy paste para whatsapp" patterns
 const WHATSAPP_PATTERNS: Record<string, string> = {
@@ -1064,13 +937,13 @@ export async function respondToProposal({
         const yesNeedsPolls = (actor.type === 'MUA' && (isSecondOption_M || isUndecided_M)) || (actor.type === 'HS' && (isSecondOption_H || isUndecided_H))
         if (yesNeedsPolls) {
           let pollsItemId: string | null = null
-          for (let attempt = 1; attempt <= 3; attempt++) {
+          for (let attempt = 1; attempt <= 5; attempt++) {
             pollsItemId = await findPollsItemIdByGuestId(mondayId)
             if (pollsItemId) break
             await new Promise(res => setTimeout(res, 1000))
           }
           if (pollsItemId) {
-            const colId = actor.type === 'MUA' ? MUA_POLL_COLUMN_BY_EMAIL[actor.email] : HS_POLL_COLUMN_BY_EMAIL[actor.email]
+            const colId = actor.type === 'MUA' ? MUA_POLL_COLUMN_BY_EMAIL[normEmail(actor.email)] : HS_POLL_COLUMN_BY_EMAIL[normEmail(actor.email)]
             if (colId) {
               await setPollsBoolean(pollsItemId, colId, true)
             } else {
@@ -1092,14 +965,14 @@ export async function respondToProposal({
           // MUA NO on Travelling fee + inquire the artist
           await setClientsStatusLabel(mondayId, MONDAY_MSTATUS_COLUMN_ID, 'inquire second option')
           await setClientsStatusLabel(mondayId, MONDAY_CLIENTS_MUAPODE_COL, 'Não pode')
-          const name = MUA_NAME_BY_EMAIL[actor.email] || actor.user?.username || actor.email
+          const name = MUA_NAME_BY_EMAIL[normEmail(actor.email)] || actor.user?.username || actor.email
           await addItemUpdate(mondayId, `${name} foi escolhido mas não pode`)
         }
         if (actor.type === 'HS' && isTravellingInquireArtist_H) {
           // HS NO on Travelling fee + inquire the artist
           await setClientsStatusLabel(mondayId, MONDAY_HSTATUS_COLUMN_ID, 'Travelling fee + inquire second option')
           await setClientsStatusLabel(mondayId, MONDAY_CLIENTS_HSPODE_COL, 'Não pode')
-          const name = HS_NAME_BY_EMAIL[actor.email] || actor.user?.username || actor.email
+          const name = HS_NAME_BY_EMAIL[normEmail(actor.email)] || actor.user?.username || actor.email
           await addItemUpdate(mondayId, `${name} foi escolhido mas não pode`)
         }
 
@@ -1107,26 +980,31 @@ export async function respondToProposal({
         const noNeedsPolls = (actor.type === 'MUA' && (isSecondOption_M || isUndecided_M)) || (actor.type === 'HS' && (isSecondOption_H || isUndecided_H))
         if (noNeedsPolls) {
           let pollsItemId: string | null = null
-          for (let attempt = 1; attempt <= 3; attempt++) {
+          for (let attempt = 1; attempt <= 5; attempt++) {
             pollsItemId = await findPollsItemIdByGuestId(mondayId)
             if (pollsItemId) break
             await new Promise(res => setTimeout(res, 1000))
           }
+          const email = normEmail(actor.email)
+          const colId = actor.type === 'MUA' ? MUA_POLL_COLUMN_BY_EMAIL[email] : HS_POLL_COLUMN_BY_EMAIL[email]
+          const displayName = (actor.type === 'MUA' ? MUA_NAME_BY_EMAIL[email] : HS_NAME_BY_EMAIL[email]) || actor.user?.username || actor.email
+          const body = `${displayName} não pode`
+
           if (!pollsItemId) {
             console.warn('[brides:NO] Polls item not found for client', mondayId)
+            // Still add update to Clients item per spec
+            await addItemUpdate(mondayId, body)
           } else {
-            const colId = actor.type === 'MUA' ? MUA_POLL_COLUMN_BY_EMAIL[actor.email] : HS_POLL_COLUMN_BY_EMAIL[actor.email]
-            if (!colId) {
-              console.warn('[brides:NO] No Polls column mapping for', actor.email)
-            } else {
+            // If mapping exists, set boolean false; either way, add updates
+            if (colId) {
               await setPollsBoolean(pollsItemId, colId, false)
-              const displayName = (actor.type === 'MUA' ? MUA_NAME_BY_EMAIL[actor.email] : HS_NAME_BY_EMAIL[actor.email]) || actor.user?.username || actor.email
-              const body = `${displayName} não pode`
-              await Promise.all([
-                addItemUpdate(pollsItemId, body),
-                addItemUpdate(mondayId, body),
-              ])
+            } else {
+              console.warn('[brides:NO] No Polls column mapping for', actor.email)
             }
+            await Promise.all([
+              addItemUpdate(pollsItemId, body),
+              addItemUpdate(mondayId, body),
+            ])
           }
         }
       } catch (e) {
