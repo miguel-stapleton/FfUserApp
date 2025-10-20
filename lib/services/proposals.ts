@@ -1098,12 +1098,20 @@ export async function respondToProposal({
     // Brides: NO flows
     if (response === 'NO') {
       try {
+        console.log('[brides:NO] start', {
+          mondayId,
+          actorEmail: normEmail(actor.email),
+          actorType: actor.type,
+          mStatusLabel,
+          hStatusLabel,
+        })
         if (actor.type === 'MUA' && isTravellingInquireArtist_M) {
           // MUA NO on Travelling fee + inquire the artist
           await setClientsStatusLabel(mondayId, MONDAY_MSTATUS_COLUMN_ID, 'inquire second option')
           await setClientsStatusLabel(mondayId, MONDAY_CLIENTS_MUAPODE_COL, 'Não pode')
           const name = MUA_NAME_BY_EMAIL[normEmail(actor.email)] || actor.user?.username || actor.email
           await addItemUpdate(mondayId, `${name} foi escolhido mas não pode`)
+          console.log('[brides:NO] MUA travelling->second option + MUApode updated')
         }
         if (actor.type === 'HS' && isTravellingInquireArtist_H) {
           // HS NO on Travelling fee + inquire the artist
@@ -1111,10 +1119,21 @@ export async function respondToProposal({
           await setClientsStatusLabel(mondayId, MONDAY_CLIENTS_HSPODE_COL, 'Não pode')
           const name = HS_NAME_BY_EMAIL[normEmail(actor.email)] || actor.user?.username || actor.email
           await addItemUpdate(mondayId, `${name} foi escolhido mas não pode`)
+          console.log('[brides:NO] HS travelling->second option + HSpode updated')
         }
 
         // NO on second-option / undecided -> set Polls FALSE + updates (both MUA and HS)
         const noNeedsPolls = (actor.type === 'MUA' && (isSecondOption_M || isUndecided_M)) || (actor.type === 'HS' && (isSecondOption_H || isUndecided_H))
+        console.log('[brides:NO] gating', {
+          actorType: actor.type,
+          flags: {
+            isSecondOption_M,
+            isSecondOption_H,
+            isUndecided_M,
+            isUndecided_H,
+            noNeedsPolls,
+          },
+        })
         if (noNeedsPolls) {
           let pollsItemId: string | null = null
           for (let attempt = 1; attempt <= 5; attempt++) {
@@ -1122,6 +1141,7 @@ export async function respondToProposal({
             if (pollsItemId) break
             await new Promise(res => setTimeout(res, 1000))
           }
+          console.log('[brides:NO] polls lookup result', { pollsItemId })
           const email = normEmail(actor.email)
           const colId = actor.type === 'MUA' ? MUA_POLL_COLUMN_BY_EMAIL[email] : HS_POLL_COLUMN_BY_EMAIL[email]
           const displayName = (actor.type === 'MUA' ? MUA_NAME_BY_EMAIL[email] : HS_NAME_BY_EMAIL[email]) || actor.user?.username || actor.email
@@ -1131,9 +1151,11 @@ export async function respondToProposal({
             console.warn('[brides:NO] Polls item not found for client', mondayId)
             // Still add update to Clients item per spec
             await addItemUpdate(mondayId, body)
+            console.log('[brides:NO] wrote Clients update only (no Polls item)')
           } else {
             // If mapping exists, set boolean false; either way, add updates
             if (colId) {
+              console.log('[brides:NO] setting Polls boolean FALSE', { colId, email })
               await setPollsBoolean(pollsItemId, colId, false)
             } else {
               console.warn('[brides:NO] No Polls column mapping for', actor.email)
@@ -1142,6 +1164,7 @@ export async function respondToProposal({
               addItemUpdate(pollsItemId, body),
               addItemUpdate(mondayId, body),
             ])
+            console.log('[brides:NO] wrote updates to Polls and Clients', { body })
           }
         }
       } catch (e) {
