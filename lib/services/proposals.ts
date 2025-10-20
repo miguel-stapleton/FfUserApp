@@ -87,6 +87,136 @@ const HS_NAME_BY_EMAIL: Record<string, string> = {
 // Normalize emails for mapping lookups
 const normEmail = (e?: string | null) => (e || '').trim().toLowerCase()
 
+// Helper: find Polls item by matching Item IDD (guest/bride Monday item id)
+async function findPollsItemIdByGuestId(guestItemId: string): Promise<string | null> {
+  const base = String(guestItemId).trim()
+  const candidates = [base, `monday-${base}`]
+
+  // 1) Try exact matches via items_by_column_values for each candidate
+  const exactQuery = `
+    query FindPollsItem($boardId: ID!, $colId: String!, $value: String!) {
+      items_by_column_values(board_id: $boardId, column_id: $colId, column_value: $value) { id }
+    }
+  `
+  for (const value of candidates) {
+    try {
+      const resp: any = await axios.post(
+        MONDAY_API_URL,
+        { query: exactQuery, variables: { boardId: MONDAY_POLLS_BOARD_ID, colId: MONDAY_POLLS_ITEM_IDD_COL, value } },
+        { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
+      )
+      const items = resp.data?.data?.items_by_column_values || []
+      if (Array.isArray(items) && items.length > 0 && items[0]?.id) {
+        return String(items[0].id)
+      }
+    } catch (e) {
+      console.warn('[polls] items_by_column_values lookup failed for', value, e)
+    }
+  }
+
+  // 2) Fallback: scan items_page and match the Item IDD column text/value loosely
+  try {
+    let cursor: string | null = null
+    while (true) {
+      const scanQuery = `
+        query ScanPolls($boardId: ID!, $cursor: String) {
+          boards(ids: [$boardId]) {
+            items_page(limit: 100, cursor: $cursor) {
+              cursor
+              items { id column_values { id text value } }
+            }
+          }
+        }
+      `
+      const scanResp: any = await axios.post(
+        MONDAY_API_URL,
+        { query: scanQuery, variables: { boardId: MONDAY_POLLS_BOARD_ID, cursor } },
+        { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
+      )
+      const page = scanResp.data?.data?.boards?.[0]?.items_page
+      if (!page) break
+      const items = page.items || []
+      for (const it of items) {
+        const cv = (it.column_values || []).find((c: any) => c.id === MONDAY_POLLS_ITEM_IDD_COL)
+        // Prefer explicit text, but also parse JSON value if present
+        let t = (cv?.text || '').toString().trim()
+        if ((!t || t.length === 0) && cv?.value) {
+          try {
+            const parsed = JSON.parse(cv.value)
+            const pv = (parsed?.text || parsed?.value || '').toString().trim()
+            if (pv) t = pv
+          } catch {}
+        }
+        if (!t) continue
+        const norm = t.trim()
+        if (candidates.includes(norm) || norm.includes(base)) {
+          return String(it.id)
+        }
+      }
+      cursor = page.cursor
+      if (!cursor) break
+    }
+  } catch (e) {
+    console.warn('[polls] items_page scan failed', e)
+  }
+
+  return null
+}
+
+// Helper: set a boolean column on Polls item
+async function setPollsBoolean(itemId: string, columnId: string, checked: boolean): Promise<void> {
+  const mutation = `
+    mutation SetBool($boardId: ID!, $itemId: ID!, $columnId: String!, $val: JSON!) {
+      change_column_value(board_id: $boardId, item_id: $itemId, column_id: $columnId, value: $val) { id }
+    }
+  `
+  const value = JSON.stringify({ checked: checked ? 'true' : 'false' })
+  await axios.post(
+    MONDAY_API_URL,
+    { query: mutation, variables: { boardId: MONDAY_POLLS_BOARD_ID, itemId, columnId, val: value } },
+    { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
+  )
+}
+
+// Helper: add an update (comment) on a Monday item (Guests board)
+async function addGuestUpdate(itemId: string, body: string): Promise<void> {
+  const mutation = `
+    mutation AddUpdate($itemId: ID!, $body: String!) { create_update (item_id: $itemId, body: $body) { id } }
+  `
+  await axios.post(
+    MONDAY_API_URL,
+    { query: mutation, variables: { itemId, body } },
+    { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
+  )
+}
+
+// Helper: add an update (comment) on a Monday item (generic)
+async function addItemUpdate(itemId: string, body: string): Promise<void> {
+  const mutation = `
+    mutation AddUpdate($itemId: ID!, $body: String!) { create_update (item_id: $itemId, body: $body) { id } }
+  `
+  await axios.post(
+    MONDAY_API_URL,
+    { query: mutation, variables: { itemId, body } },
+    { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
+  )
+}
+
+// Helper: set a Status/Color label on Clients board
+async function setClientsStatusLabel(itemId: string, columnId: string, label: string): Promise<void> {
+  const mutation = `
+    mutation SetStatus($boardId: ID!, $itemId: ID!, $columnId: String!, $val: JSON!) {
+      change_column_value(board_id: $boardId, item_id: $itemId, column_id: $columnId, value: $val) { id }
+    }
+  `
+  const value = JSON.stringify({ label })
+  await axios.post(
+    MONDAY_API_URL,
+    { query: mutation, variables: { boardId: MONDAY_BOARD_ID, itemId, columnId, val: value } },
+    { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
+  )
+}
+
 // Artist name mappings for "copy paste para whatsapp" patterns
 const WHATSAPP_PATTERNS: Record<string, string> = {
   'Lola': 'copy paste para whatsapp de Lola',
@@ -829,13 +959,20 @@ export async function respondToProposal({
         const colId = actor.type === 'MUA' ? MUA_POLL_COLUMN_BY_EMAIL[actor.email] : HS_POLL_COLUMN_BY_EMAIL[actor.email]
         const displayName = (actor.type === 'MUA' ? MUA_NAME_BY_EMAIL[actor.email] : HS_NAME_BY_EMAIL[actor.email]) || actor.user?.username || actor.email
         const body = `${displayName} não pode`
-        if (pollsItemId && colId) {
-          await setPollsBoolean(pollsItemId, colId, false)
-          await addItemUpdate(pollsItemId, body)
+
+        if (!pollsItemId) {
+          console.warn('[guests:NO] Polls item not found for guest', guestItemId)
+          // Still add update to Clients item per spec
+          await addItemUpdate(guestItemId, body)
         } else {
-          console.warn('[guests] Missing Polls mapping or item on NO', { pollsItemId, colId })
+          // If mapping exists, set boolean false; either way, add updates
+          if (colId) {
+            await setPollsBoolean(pollsItemId, colId, false)
+          } else {
+            console.warn('[guests:NO] No Polls column mapping for', actor.email)
+          }
+          await addGuestUpdate(guestItemId, body)
         }
-        await addGuestUpdate(guestItemId, body)
       }
     } catch (mErr) {
       console.error('[guests] Failed to apply Polls/Update actions:', mErr)
