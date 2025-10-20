@@ -13,7 +13,7 @@ import {
 const MONDAY_API_URL = 'https://api.monday.com/v2'
 const MONDAY_API_TOKEN = process.env.MONDAY_API_TOKEN
 // Always fetch from the Clients board
-const MONDAY_BOARD_ID = process.env.MONDAY_CLIENTS_BOARD_ID || process.env.MONDAY_BOARD_ID
+const MONDAY_BOARD_ID = process.env.MONDAY_CLIENTS_BOARD_ID || process.env.MONDAY_BOARD_ID || '1260828829'
 // Kept for backward compatibility but no longer used for selection
 const MONDAY_MUA_BOARD_ID = process.env.MONDAY_MUA_BOARD_ID
 const MONDAY_HS_BOARD_ID = process.env.MONDAY_HS_BOARD_ID
@@ -54,6 +54,34 @@ const HS_POLL_COLUMN_BY_EMAIL: Record<string, string> = {
   'kseniya.hairstylist@gmail.com': 'boolean_mkqwbra6',
   'joanacarvalho_@hotmail.com': 'boolean_mkqwx8ve',
   'olga.amaral.hilario@gmail.com': 'boolean_mkqwnszp',
+}
+
+// Clients board status/color columns for "Pode!/Não pode"
+const MONDAY_CLIENTS_MUAPODE_COL = 'color_mkwhcpdm'
+const MONDAY_CLIENTS_HSPODE_COL = 'color_mkwh47yj'
+
+// Display names for updates
+const MUA_NAME_BY_EMAIL: Record<string, string> = {
+  'gi.lola@gmail.com': 'Lola',
+  'info@miguelstapleton.art': 'Miguel',
+  'tecadete@gmail.com': 'Teresa',
+  'iaguiarmakeup@gmail.com': 'Inês',
+  'anaroma.makeup@gmail.com': 'Ana Roma',
+  'anaferreira.geral@hotmail.com': 'Sofia',
+  'anacatarinanev@gmail.com': 'Ana Neves',
+  'ritarnunes.mua@gmail.com': 'Rita',
+  'sara.jogo@hotmail.com': 'Sara',
+  'filipawahnon.mua@gmail.com': 'Filipa',
+}
+
+const HS_NAME_BY_EMAIL: Record<string, string> = {
+  'hi@letshair.com': 'Agne',
+  'liliapcosta@gmail.com': 'Lília',
+  'andreiadematoshair@gmail.com': 'Andreia',
+  'riberic@gmail.com': 'Eric',
+  'kseniya.hairstylist@gmail.com': 'Oksana',
+  'joanacarvalho_@hotmail.com': 'Joana',
+  'olga.amaral.hilario@gmail.com': 'Olga H',
 }
 
 // Helper: find Polls item by matching Item IDD (guest/bride Monday item id)
@@ -155,6 +183,33 @@ async function addGuestUpdate(itemId: string, body: string): Promise<void> {
   await axios.post(
     MONDAY_API_URL,
     { query: mutation, variables: { itemId, body } },
+    { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
+  )
+}
+
+// Helper: add an update (comment) on a Monday item (generic)
+async function addItemUpdate(itemId: string, body: string): Promise<void> {
+  const mutation = `
+    mutation AddUpdate($itemId: ID!, $body: String!) { create_update (item_id: $itemId, body: $body) { id } }
+  `
+  await axios.post(
+    MONDAY_API_URL,
+    { query: mutation, variables: { itemId, body } },
+    { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
+  )
+}
+
+// Helper: set a Status/Color label on Clients board
+async function setClientsStatusLabel(itemId: string, columnId: string, label: string): Promise<void> {
+  const mutation = `
+    mutation SetStatus($boardId: ID!, $itemId: ID!, $columnId: String!, $val: JSON!) {
+      change_column_value(board_id: $boardId, item_id: $itemId, column_id: $columnId, value: $val) { id }
+    }
+  `
+  const value = JSON.stringify({ label })
+  await axios.post(
+    MONDAY_API_URL,
+    { query: mutation, variables: { boardId: MONDAY_BOARD_ID, itemId, columnId, val: value } },
     { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
   )
 }
@@ -882,7 +937,7 @@ export async function respondToProposal({
       details: { mondayClientItemId: guestItemId, response, artistEmail: actor.email },
     })
 
-    // Apply Monday side-effects for guests: YES -> set Polls boolean TRUE; NO -> post update
+    // Apply Monday side-effects for guests: YES -> set Polls TRUE; NO -> set Polls FALSE + updates
     try {
       if (response === 'YES') {
         const pollsItemId = await findPollsItemIdByGuestId(guestItemId)
@@ -897,8 +952,17 @@ export async function respondToProposal({
           console.warn('[guests] Polls item not found for guest', guestItemId)
         }
       } else if (response === 'NO') {
-        const artistName = actor.user?.username || actor.email
-        await addGuestUpdate(guestItemId, `${artistName} não pode`)
+        const pollsItemId = await findPollsItemIdByGuestId(guestItemId)
+        const colId = actor.type === 'MUA' ? MUA_POLL_COLUMN_BY_EMAIL[actor.email] : HS_POLL_COLUMN_BY_EMAIL[actor.email]
+        const displayName = (actor.type === 'MUA' ? MUA_NAME_BY_EMAIL[actor.email] : HS_NAME_BY_EMAIL[actor.email]) || actor.user?.username || actor.email
+        const body = `${displayName} não pode`
+        if (pollsItemId && colId) {
+          await setPollsBoolean(pollsItemId, colId, false)
+          await addItemUpdate(pollsItemId, body)
+        } else {
+          console.warn('[guests] Missing Polls mapping or item on NO', { pollsItemId, colId })
+        }
+        await addGuestUpdate(guestItemId, body)
       }
     } catch (mErr) {
       console.error('[guests] Failed to apply Polls/Update actions:', mErr)
@@ -948,27 +1012,125 @@ export async function respondToProposal({
       details: { mondayClientItemId: mondayId, response, artistEmail: actor.email },
     })
 
-    // Brides: on YES, also mark Polls board for this client item id (with brief retry for eventual consistency)
+    // Fetch Clients item to evaluate status gating (Mstatus/Hstatus)
+    let mStatusLabel = ''
+    let hStatusLabel = ''
+    try {
+      const itemQuery = `
+        query GetItem($id: [ID!]) { items(ids: $id) { id column_values { id text value title } } }
+      `
+      const itemResp: any = await axios.post(
+        MONDAY_API_URL,
+        { query: itemQuery, variables: { id: [mondayId] } },
+        { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
+      )
+      const cols: any[] = itemResp.data?.data?.items?.[0]?.column_values || []
+      const getLabel = (col: any): string => {
+        let t = (col?.text || '').toString().trim()
+        if ((!t || t.length === 0) && col?.value) {
+          try { const v = JSON.parse(col.value); t = v?.label || t } catch {}
+        }
+        return t
+      }
+      let mCol = cols.find(c => c.id === MONDAY_MSTATUS_COLUMN_ID) || cols.find((c:any)=> c.id==='project_status' || c.title?.toLowerCase().includes('mstatus'))
+      let hCol = cols.find(c => c.id === MONDAY_HSTATUS_COLUMN_ID) || cols.find((c:any)=> c.id==='dup__of_mstatus' || c.title?.toLowerCase().includes('hstatus'))
+      mStatusLabel = getLabel(mCol)
+      hStatusLabel = getLabel(hCol)
+    } catch (e) {
+      console.warn('[brides] Failed to fetch Clients item for status gating', e)
+    }
+
+    const normalize = (s: string) => (s || '').toLowerCase().replace(/[–—]/g, '-').replace(/\s+/g, ' ').trim()
+    const isTravellingInquireArtist_M = normalize(mStatusLabel) === 'travelling fee + inquire the artist'
+    const isTravellingInquireArtist_H = normalize(hStatusLabel) === 'travelling fee + inquire the artist'
+    const isSecondOption_M = normalize(mStatusLabel) === 'inquire second option'
+    const isSecondOption_H = normalize(hStatusLabel) === 'travelling fee + inquire second option'
+    const isUndecided_M = normalize(mStatusLabel) === 'undecided- inquire availabilities' || normalize(mStatusLabel) === 'undecided - inquire availabilities'
+    const isUndecided_H = normalize(hStatusLabel) === 'undecided- inquire availabilities' || normalize(hStatusLabel) === 'undecided - inquire availabilities'
+
+    // Brides: YES flows
     if (response === 'YES') {
       try {
-        let pollsItemId: string | null = null
-        for (let attempt = 1; attempt <= 3; attempt++) {
-          pollsItemId = await findPollsItemIdByGuestId(mondayId)
-          if (pollsItemId) break
-          await new Promise(res => setTimeout(res, 1000))
+        if (actor.type === 'MUA' && isTravellingInquireArtist_M) {
+          // Set MUApode to "Pode!"
+          await setClientsStatusLabel(mondayId, MONDAY_CLIENTS_MUAPODE_COL, 'Pode!')
         }
-        if (pollsItemId) {
-          const colId = actor.type === 'MUA' ? MUA_POLL_COLUMN_BY_EMAIL[actor.email] : HS_POLL_COLUMN_BY_EMAIL[actor.email]
-          if (colId) {
-            await setPollsBoolean(pollsItemId, colId, true)
-          } else {
-            console.warn('[brides] No Polls column mapping for', actor.email)
+        if (actor.type === 'HS' && isTravellingInquireArtist_H) {
+          // Set HSpode to "Pode!"
+          await setClientsStatusLabel(mondayId, MONDAY_CLIENTS_HSPODE_COL, 'Pode!')
+        }
+
+        // YES on second-option / undecided -> set Polls TRUE
+        const yesNeedsPolls = (actor.type === 'MUA' && (isSecondOption_M || isUndecided_M)) || (actor.type === 'HS' && (isSecondOption_H || isUndecided_H))
+        if (yesNeedsPolls) {
+          let pollsItemId: string | null = null
+          for (let attempt = 1; attempt <= 3; attempt++) {
+            pollsItemId = await findPollsItemIdByGuestId(mondayId)
+            if (pollsItemId) break
+            await new Promise(res => setTimeout(res, 1000))
           }
-        } else {
-          console.warn('[brides] Polls item not found for client', mondayId)
+          if (pollsItemId) {
+            const colId = actor.type === 'MUA' ? MUA_POLL_COLUMN_BY_EMAIL[actor.email] : HS_POLL_COLUMN_BY_EMAIL[actor.email]
+            if (colId) {
+              await setPollsBoolean(pollsItemId, colId, true)
+            } else {
+              console.warn('[brides] No Polls column mapping for', actor.email)
+            }
+          } else {
+            console.warn('[brides] Polls item not found for client', mondayId)
+          }
         }
       } catch (e) {
         console.error('[brides] Failed to update Polls board on YES:', e)
+      }
+    }
+
+    // Brides: NO flows
+    if (response === 'NO') {
+      try {
+        if (actor.type === 'MUA' && isTravellingInquireArtist_M) {
+          // MUA NO on Travelling fee + inquire the artist
+          await setClientsStatusLabel(mondayId, MONDAY_MSTATUS_COLUMN_ID, 'inquire second option')
+          await setClientsStatusLabel(mondayId, MONDAY_CLIENTS_MUAPODE_COL, 'Não pode')
+          const name = MUA_NAME_BY_EMAIL[actor.email] || actor.user?.username || actor.email
+          await addItemUpdate(mondayId, `${name} foi escolhido mas não pode`)
+        }
+        if (actor.type === 'HS' && isTravellingInquireArtist_H) {
+          // HS NO on Travelling fee + inquire the artist
+          await setClientsStatusLabel(mondayId, MONDAY_HSTATUS_COLUMN_ID, 'Travelling fee + inquire second option')
+          await setClientsStatusLabel(mondayId, MONDAY_CLIENTS_HSPODE_COL, 'Não pode')
+          const name = HS_NAME_BY_EMAIL[actor.email] || actor.user?.username || actor.email
+          await addItemUpdate(mondayId, `${name} foi escolhido mas não pode`)
+        }
+
+        // NO on second-option / undecided -> set Polls FALSE + updates (both MUA and HS)
+        const noNeedsPolls = (actor.type === 'MUA' && (isSecondOption_M || isUndecided_M)) || (actor.type === 'HS' && (isSecondOption_H || isUndecided_H))
+        if (noNeedsPolls) {
+          let pollsItemId: string | null = null
+          for (let attempt = 1; attempt <= 3; attempt++) {
+            pollsItemId = await findPollsItemIdByGuestId(mondayId)
+            if (pollsItemId) break
+            await new Promise(res => setTimeout(res, 1000))
+          }
+          if (!pollsItemId) {
+            console.warn('[brides:NO] Polls item not found for client', mondayId)
+          } else {
+            const colId = actor.type === 'MUA' ? MUA_POLL_COLUMN_BY_EMAIL[actor.email] : HS_POLL_COLUMN_BY_EMAIL[actor.email]
+            if (!colId) {
+              console.warn('[brides:NO] No Polls column mapping for', actor.email)
+            } else {
+              await setPollsBoolean(pollsItemId, colId, false)
+              const displayName = (actor.type === 'MUA' ? MUA_NAME_BY_EMAIL[actor.email] : HS_NAME_BY_EMAIL[actor.email]) || actor.user?.username || actor.email
+              const body = `${displayName} não pode`
+              await Promise.all([
+                addItemUpdate(pollsItemId, body),
+                addItemUpdate(mondayId, body),
+              ])
+            }
+          }
+        }
+      } catch (e) {
+        console.error('[brides:NO] Failed to apply Clients/Polls updates:', e)
       }
     }
     return
