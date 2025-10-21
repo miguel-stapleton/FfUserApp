@@ -1027,14 +1027,22 @@ export async function respondToProposal({
     let hStatusLabel = ''
     try {
       const itemQuery = `
-        query GetItem($id: [ID!]) { items(ids: $id) { id column_values { id text value title } } }
+        query GetItem($id: [ID!]) {
+          items(ids: $id) {
+            id
+            column_values { id text value title }
+            updates { text_body }
+          }
+        }
       `
       const itemResp: any = await axios.post(
         MONDAY_API_URL,
         { query: itemQuery, variables: { id: [mondayId] } },
         { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
       )
-      const cols: any[] = itemResp.data?.data?.items?.[0]?.column_values || []
+      const itemData = itemResp.data?.data?.items?.[0]
+      const cols: any[] = itemData?.column_values || []
+      const updatesArr: any[] = itemData?.updates || []
       const getLabel = (col: any): string => {
         let t = (col?.text || '').toString().trim()
         if ((!t || t.length === 0) && col?.value) {
@@ -1046,6 +1054,31 @@ export async function respondToProposal({
       let hCol = cols.find(c => c.id === MONDAY_HSTATUS_COLUMN_ID) || cols.find((c:any)=> c.id==='dup__of_mstatus' || c.title?.toLowerCase().includes('hstatus'))
       mStatusLabel = getLabel(mCol)
       hStatusLabel = getLabel(hCol)
+      // Fallback gating inference from updates if both labels are empty
+      if (!mStatusLabel && !hStatusLabel) {
+        const email = normEmail(actor.email)
+        const displayName = (actor.type === 'MUA' ? MUA_NAME_BY_EMAIL[email] : HS_NAME_BY_EMAIL[email]) || ''
+        const pattern = displayName ? WHATSAPP_PATTERNS[displayName] : undefined
+        const updatesText = updatesArr.map(u => (u?.text_body || '').toString()).join(' ')
+        const patternPresent = !!(pattern && updatesText.includes(pattern))
+        // If the logged-in artist's WhatsApp pattern is present on the item, this strongly indicates
+        // the status was "Travelling fee + inquire the artist" (since for second-option the exception
+        // account is excluded from seeing the card). Otherwise, treat as "undecided/second-option" gating.
+        if (actor.type === 'MUA') {
+          if (patternPresent) {
+            mStatusLabel = 'Travelling fee + inquire the artist'
+          } else {
+            mStatusLabel = 'undecided- inquire availabilities'
+          }
+        } else {
+          if (patternPresent) {
+            hStatusLabel = 'Travelling fee + inquire the artist'
+          } else {
+            hStatusLabel = 'undecided- inquire availabilities'
+          }
+        }
+        console.log('[brides] inferred gating from updates', { actorType: actor.type, patternPresent, displayName, inferredM: mStatusLabel, inferredH: hStatusLabel })
+      }
     } catch (e) {
       console.warn('[brides] Failed to fetch Clients item for status gating', e)
     }
@@ -1061,6 +1094,13 @@ export async function respondToProposal({
     // Brides: YES flows
     if (response === 'YES') {
       try {
+        console.log('[brides:YES] start', {
+          mondayId,
+          actorEmail: normEmail(actor.email),
+          actorType: actor.type,
+          mStatusLabel,
+          hStatusLabel,
+        })
         if (actor.type === 'MUA' && isTravellingInquireArtist_M) {
           // Set MUApode to "Pode!"
           await setClientsStatusLabel(mondayId, MONDAY_CLIENTS_MUAPODE_COL, 'Pode!')
@@ -1072,6 +1112,16 @@ export async function respondToProposal({
 
         // YES on second-option / undecided -> set Polls TRUE
         const yesNeedsPolls = (actor.type === 'MUA' && (isSecondOption_M || isUndecided_M)) || (actor.type === 'HS' && (isSecondOption_H || isUndecided_H))
+        console.log('[brides:YES] gating', {
+          actorType: actor.type,
+          flags: {
+            isSecondOption_M,
+            isSecondOption_H,
+            isUndecided_M,
+            isUndecided_H,
+            yesNeedsPolls,
+          },
+        })
         if (yesNeedsPolls) {
           let pollsItemId: string | null = null
           for (let attempt = 1; attempt <= 5; attempt++) {
@@ -1079,10 +1129,14 @@ export async function respondToProposal({
             if (pollsItemId) break
             await new Promise(res => setTimeout(res, 1000))
           }
+          console.log('[brides:YES] polls lookup result', { pollsItemId })
           if (pollsItemId) {
-            const colId = actor.type === 'MUA' ? MUA_POLL_COLUMN_BY_EMAIL[normEmail(actor.email)] : HS_POLL_COLUMN_BY_EMAIL[normEmail(actor.email)]
+            const email = normEmail(actor.email)
+            const colId = actor.type === 'MUA' ? MUA_POLL_COLUMN_BY_EMAIL[email] : HS_POLL_COLUMN_BY_EMAIL[email]
+            console.log('[brides:YES] column mapping', { email, colId })
             if (colId) {
               await setPollsBoolean(pollsItemId, colId, true)
+              console.log('[brides:YES] set Polls TRUE done')
             } else {
               console.warn('[brides] No Polls column mapping for', actor.email)
             }
