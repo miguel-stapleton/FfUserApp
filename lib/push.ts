@@ -1,6 +1,53 @@
 import webpush from 'web-push'
 import { prisma } from './prisma'
 
+interface NotificationDeliveryLog {
+  userId: string
+  artistId?: string
+  clientName?: string
+  serviceType?: string
+  status: 'SENT' | 'FAILED' | 'NO_SUBSCRIPTION' | 'INVALID_SUBSCRIPTION'
+  subscriptionCount: number
+  failureReason?: string
+  timestamp: Date
+}
+
+/**
+ * Log notification delivery attempts for debugging and monitoring
+ */
+async function logNotificationDelivery(log: NotificationDeliveryLog): Promise<void> {
+  try {
+    console.log('[push:delivery_log]', {
+      userId: log.userId,
+      artistId: log.artistId,
+      clientName: log.clientName,
+      status: log.status,
+      subscriptionCount: log.subscriptionCount,
+      failureReason: log.failureReason,
+      timestamp: log.timestamp.toISOString(),
+    })
+    
+    // Store in database for historical tracking
+    await prisma.notificationDeliveryLog.create({
+      data: {
+        userId: log.userId,
+        artistId: log.artistId,
+        clientName: log.clientName,
+        serviceType: log.serviceType,
+        status: log.status,
+        subscriptionCount: log.subscriptionCount,
+        failureReason: log.failureReason,
+        timestamp: log.timestamp,
+      },
+    }).catch(err => {
+      // Don't fail the notification if logging fails
+      console.warn('[push:delivery_log] Failed to store log in database:', err)
+    })
+  } catch (error) {
+    console.error('[push:delivery_log] Error logging notification:', error)
+  }
+}
+
 // Configure web-push with VAPID keys
 if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
   console.warn('[push] VAPID keys are missing. Push sends will fail until set.')
@@ -34,8 +81,20 @@ export async function sendPushToUser(
 
     if (subscriptions.length === 0) {
       console.log(`[push] No subscriptions for user ${userId}`)
+      await logNotificationDelivery({
+        userId,
+        status: 'NO_SUBSCRIPTION',
+        subscriptionCount: 0,
+        clientName: payload.data?.clientName,
+        serviceType: payload.data?.serviceType,
+        timestamp: new Date(),
+      })
       return
     }
+
+    let successCount = 0
+    let failureCount = 0
+    let invalidCount = 0
 
     const pushPromises = subscriptions.map(async (subscription) => {
       try {
@@ -49,6 +108,7 @@ export async function sendPushToUser(
           },
           JSON.stringify(payload)
         )
+        successCount++
       } catch (error: any) {
         console.error(`Failed to send push to subscription ${subscription.id}:`, error)
         
@@ -58,11 +118,26 @@ export async function sendPushToUser(
             where: { id: subscription.id },
           })
           console.log(`[push] Removed invalid subscription ${subscription.id}`)
+          invalidCount++
+        } else {
+          failureCount++
         }
       }
     })
 
     await Promise.allSettled(pushPromises)
+    
+    // Log delivery outcome
+    const status = successCount > 0 ? 'SENT' : (invalidCount > 0 ? 'INVALID_SUBSCRIPTION' : 'FAILED')
+    await logNotificationDelivery({
+      userId,
+      status,
+      subscriptionCount: subscriptions.length,
+      clientName: payload.data?.clientName,
+      serviceType: payload.data?.serviceType,
+      failureReason: failureCount > 0 ? `${failureCount} subscriptions failed to send` : undefined,
+      timestamp: new Date(),
+    })
   } catch (error) {
     console.error('Error sending push notification:', error)
   }
@@ -134,6 +209,7 @@ export async function sendNewProposalNotification(
     },
     select: {
       userId: true,
+      id: true,
     },
   })
 
@@ -144,6 +220,22 @@ export async function sendNewProposalNotification(
     select: { userId: true },
   })
   const userIds = Array.from(new Set(subs.map(s => s.userId)))
+  
+  // Log artists without subscriptions
+  const artistsWithSubs = new Set(userIds)
+  for (const artist of artists) {
+    if (!artistsWithSubs.has(artist.userId)) {
+      await logNotificationDelivery({
+        userId: artist.userId,
+        artistId: artist.id,
+        clientName,
+        serviceType,
+        status: 'NO_SUBSCRIPTION',
+        subscriptionCount: 0,
+        timestamp: new Date(),
+      })
+    }
+  }
 
   // Format event date safely as DD/MM/YYYY
   let displayDate = ''

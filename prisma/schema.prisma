@@ -172,3 +172,19 @@ model Trial {
   @@index([artistId, trialDate])
   @@index([clientServiceId])
 }
+
+model NotificationDeliveryLog {
+  id              String   @id @default(cuid())
+  userId          String
+  artistId        String?
+  clientName      String?
+  serviceType     String?
+  status          String   // 'SENT' | 'FAILED' | 'NO_SUBSCRIPTION' | 'INVALID_SUBSCRIPTION'
+  subscriptionCount Int
+  failureReason   String?
+  timestamp       DateTime @default(now())
+
+  @@index([userId, timestamp])
+  @@index([status, timestamp])
+  @@index([artistId, timestamp])
+}
