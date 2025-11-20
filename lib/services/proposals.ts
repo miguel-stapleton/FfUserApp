@@ -204,17 +204,51 @@ async function addItemUpdate(itemId: string, body: string): Promise<void> {
 
 // Helper: set a Status/Color label on Clients board
 async function setClientsStatusLabel(itemId: string, columnId: string, label: string): Promise<void> {
+  console.log('[setClientsStatusLabel] Attempting to set status', { itemId, columnId, label, boardId: MONDAY_BOARD_ID })
+  
   const mutation = `
     mutation SetStatus($boardId: ID!, $itemId: ID!, $columnId: String!, $val: JSON!) {
       change_column_value(board_id: $boardId, item_id: $itemId, column_id: $columnId, value: $val) { id }
     }
   `
   const value = JSON.stringify({ label })
-  await axios.post(
-    MONDAY_API_URL,
-    { query: mutation, variables: { boardId: MONDAY_BOARD_ID, itemId, columnId, val: value } },
-    { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
-  )
+  
+  try {
+    const response = await axios.post(
+      MONDAY_API_URL,
+      { query: mutation, variables: { boardId: MONDAY_BOARD_ID, itemId, columnId, val: value } },
+      { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
+    )
+    
+    // Check for GraphQL errors in response
+    if (response.data?.errors && response.data.errors.length > 0) {
+      const errorMsg = response.data.errors.map((e: any) => e.message).join(', ')
+      console.error('[setClientsStatusLabel] Monday.com API returned errors:', response.data.errors)
+      throw new Error(`Monday.com API error: ${errorMsg}`)
+    }
+    
+    // Check if the mutation succeeded
+    if (!response.data?.data?.change_column_value?.id) {
+      console.error('[setClientsStatusLabel] Unexpected response structure:', response.data)
+      throw new Error('Monday.com API did not return expected data structure')
+    }
+    
+    console.log('[setClientsStatusLabel] Successfully updated column', { itemId, columnId, label })
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      console.error('[setClientsStatusLabel] Axios error:', {
+        message: error.message,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        itemId,
+        columnId,
+        label
+      })
+      throw new Error(`Failed to update Monday.com column ${columnId}: ${error.message}`)
+    }
+    throw error
+  }
 }
 
 // Artist name mappings for "copy paste para whatsapp" patterns
@@ -1093,36 +1127,66 @@ export async function respondToProposal({
 
     // Brides: YES flows
     if (response === 'YES') {
-      try {
-        console.log('[brides:YES] start', {
-          mondayId,
-          actorEmail: normEmail(actor.email),
-          actorType: actor.type,
-          mStatusLabel,
-          hStatusLabel,
-        })
-        if (actor.type === 'MUA' && isTravellingInquireArtist_M) {
-          // Set MUApode to "Pode!"
+      console.log('[brides:YES] start', {
+        mondayId,
+        actorEmail: normEmail(actor.email),
+        actorType: actor.type,
+        mStatusLabel,
+        hStatusLabel,
+      })
+      
+      // Handle "Travelling fee + inquire the artist" status updates
+      // These are critical and should fail loudly if they don't work
+      if (actor.type === 'MUA' && isTravellingInquireArtist_M) {
+        console.log('[brides:YES] Setting MUApode to "Pode!" for MUA', { mondayId, email: actor.email })
+        try {
           await setClientsStatusLabel(mondayId, MONDAY_CLIENTS_MUAPODE_COL, 'Pode!')
+          console.log('[brides:YES] Successfully set MUApode to "Pode!"')
+        } catch (e) {
+          console.error('[brides:YES] CRITICAL: Failed to set MUApode to "Pode!"', {
+            mondayId,
+            columnId: MONDAY_CLIENTS_MUAPODE_COL,
+            artistEmail: actor.email,
+            error: e
+          })
+          // Re-throw to ensure the error is visible
+          throw new Error(`Failed to set MUApode status for client ${mondayId}: ${e instanceof Error ? e.message : String(e)}`)
         }
-        if (actor.type === 'HS' && isTravellingInquireArtist_H) {
-          // Set HSpode to "Pode!"
+      }
+      
+      if (actor.type === 'HS' && isTravellingInquireArtist_H) {
+        console.log('[brides:YES] Setting HSpode to "Pode!" for HS', { mondayId, email: actor.email })
+        try {
           await setClientsStatusLabel(mondayId, MONDAY_CLIENTS_HSPODE_COL, 'Pode!')
+          console.log('[brides:YES] Successfully set HSpode to "Pode!"')
+        } catch (e) {
+          console.error('[brides:YES] CRITICAL: Failed to set HSpode to "Pode!"', {
+            mondayId,
+            columnId: MONDAY_CLIENTS_HSPODE_COL,
+            artistEmail: actor.email,
+            error: e
+          })
+          // Re-throw to ensure the error is visible
+          throw new Error(`Failed to set HSpode status for client ${mondayId}: ${e instanceof Error ? e.message : String(e)}`)
         }
+      }
 
-        // YES on second-option / undecided -> set Polls TRUE
-        const yesNeedsPolls = (actor.type === 'MUA' && (isSecondOption_M || isUndecided_M)) || (actor.type === 'HS' && (isSecondOption_H || isUndecided_H))
-        console.log('[brides:YES] gating', {
-          actorType: actor.type,
-          flags: {
-            isSecondOption_M,
-            isSecondOption_H,
-            isUndecided_M,
-            isUndecided_H,
-            yesNeedsPolls,
-          },
-        })
-        if (yesNeedsPolls) {
+      // YES on second-option / undecided -> set Polls TRUE
+      // These are less critical, so we can catch and log without re-throwing
+      const yesNeedsPolls = (actor.type === 'MUA' && (isSecondOption_M || isUndecided_M)) || (actor.type === 'HS' && (isSecondOption_H || isUndecided_H))
+      console.log('[brides:YES] gating', {
+        actorType: actor.type,
+        flags: {
+          isSecondOption_M,
+          isSecondOption_H,
+          isUndecided_M,
+          isUndecided_H,
+          yesNeedsPolls,
+        },
+      })
+      
+      if (yesNeedsPolls) {
+        try {
           let pollsItemId: string | null = null
           for (let attempt = 1; attempt <= 5; attempt++) {
             pollsItemId = await findPollsItemIdByGuestId(mondayId)
@@ -1138,14 +1202,15 @@ export async function respondToProposal({
               await setPollsBoolean(pollsItemId, colId, true)
               console.log('[brides:YES] set Polls TRUE done')
             } else {
-              console.warn('[brides] No Polls column mapping for', actor.email)
+              console.warn('[brides:YES] No Polls column mapping for', actor.email)
             }
           } else {
-            console.warn('[brides] Polls item not found for client', mondayId)
+            console.warn('[brides:YES] Polls item not found for client', mondayId)
           }
+        } catch (e) {
+          console.error('[brides:YES] Failed to update Polls board (non-critical):', e)
+          // Don't re-throw - Polls updates are supplementary
         }
-      } catch (e) {
-        console.error('[brides] Failed to update Polls board on YES:', e)
       }
     }
 
