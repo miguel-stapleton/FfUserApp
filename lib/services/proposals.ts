@@ -1065,7 +1065,10 @@ export async function respondToProposal({
           items(ids: $id) {
             id
             column_values { id text value title }
-            updates { text_body }
+            updates(limit: 50) {
+              text_body
+              body
+            }
           }
         }
       `
@@ -1077,6 +1080,14 @@ export async function respondToProposal({
       const itemData = itemResp.data?.data?.items?.[0]
       const cols: any[] = itemData?.column_values || []
       const updatesArr: any[] = itemData?.updates || []
+      
+      console.log('[brides] Raw Monday.com response debug', {
+        mondayId,
+        hasItemData: !!itemData,
+        columnsCount: cols.length,
+        updatesCount: updatesArr.length,
+        updatesRaw: updatesArr.slice(0, 3)
+      })
       const getLabel = (col: any): string => {
         let t = (col?.text || '').toString().trim()
         if ((!t || t.length === 0) && col?.value) {
