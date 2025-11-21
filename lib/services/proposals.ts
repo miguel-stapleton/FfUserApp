@@ -1097,14 +1097,35 @@ export async function respondToProposal({
       }
       let mCol = cols.find(c => c.id === MONDAY_MSTATUS_COLUMN_ID) || cols.find((c:any)=> c.id==='project_status' || c.title?.toLowerCase().includes('mstatus'))
       let hCol = cols.find(c => c.id === MONDAY_HSTATUS_COLUMN_ID) || cols.find((c:any)=> c.id==='dup__of_mstatus' || c.title?.toLowerCase().includes('hstatus'))
+      
+      // Debug logging to see what columns we found
+      console.log('[brides] Column lookup debug', {
+        mondayId,
+        MONDAY_MSTATUS_COLUMN_ID,
+        MONDAY_HSTATUS_COLUMN_ID,
+        mColFound: !!mCol,
+        hColFound: !!hCol,
+        mColId: mCol?.id,
+        hColId: hCol?.id,
+        mColText: mCol?.text,
+        hColText: hCol?.text,
+        mColValue: mCol?.value,
+        hColValue: hCol?.value,
+        totalColumns: cols.length,
+        columnIds: cols.map((c: any) => c.id).slice(0, 20)
+      })
+      
       mStatusLabel = getLabel(mCol)
       hStatusLabel = getLabel(hCol)
+      
+      console.log('[brides] Extracted labels', { mStatusLabel, hStatusLabel })
+      
       // Fallback gating inference from updates if both labels are empty
       if (!mStatusLabel && !hStatusLabel) {
         const email = normEmail(actor.email)
         const displayName = (actor.type === 'MUA' ? MUA_NAME_BY_EMAIL[email] : HS_NAME_BY_EMAIL[email]) || ''
         const pattern = displayName ? WHATSAPP_PATTERNS[displayName] : undefined
-        const updatesText = updatesArr.map(u => (u?.text_body || '').toString()).join(' ')
+        const updatesText = updatesArr.map(u => (u?.text_body || u?.body || '').toString()).join(' ')
         const patternPresent = !!(pattern && updatesText.includes(pattern))
         
         // Debug logging for pattern matching

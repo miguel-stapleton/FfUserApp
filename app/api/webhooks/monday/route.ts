@@ -852,13 +852,17 @@ async function handleTravellingFeeStatus(
   }
 
   // Get the chosen artist Monday item ID from the client record
-  // This would need to be implemented based on Monday.com API structure
   const chosenArtistMondayId = await getChosenArtistFromClient(mondayItemId, serviceType)
   
   if (!chosenArtistMondayId) {
-    console.log(`No chosen artist found for ${serviceType} client ${mondayItemId}`)
+    console.log(`[monday:webhook:travelling] No chosen artist found for ${serviceType} client ${mondayItemId}`)
     return
   }
+
+  console.log(`[monday:webhook:travelling] Looking up artist in database`, {
+    chosenArtistMondayId,
+    serviceType
+  })
 
   // Find the artist in our database
   const artist = await prisma.artist.findFirst({
@@ -870,9 +874,26 @@ async function handleTravellingFeeStatus(
   })
 
   if (!artist) {
-    console.error(`Chosen artist not found in database: ${chosenArtistMondayId}`)
+    console.error(`[monday:webhook:travelling] Chosen artist not found in database`, {
+      chosenArtistMondayId,
+      serviceType,
+      note: 'Artist may not be synced to database or mondayItemId mismatch'
+    })
+    
+    // Try to find all artists to help debug
+    const allArtists = await prisma.artist.findMany({
+      where: { type: serviceType, active: true },
+      select: { id: true, email: true, mondayItemId: true }
+    })
+    console.log(`[monday:webhook:travelling] Available ${serviceType} artists in database:`, allArtists)
     return
   }
+
+  console.log(`[monday:webhook:travelling] Found artist`, {
+    artistId: artist.id,
+    email: artist.email,
+    mondayItemId: artist.mondayItemId
+  })
 
   // Ensure ClientService exists; if it fails, send fallback push and return
   let clientServiceId: string
@@ -955,20 +976,76 @@ async function getChosenArtistFromClient(
   serviceType: 'MUA' | 'HS'
 ): Promise<string | null> {
   try {
-    // This would need to be implemented based on your Monday.com board structure
-    // For now, returning null as placeholder
-    // You would make an API call to Monday.com to get the chosen artist column value
-    
     const chosenArtistColumnId = serviceType === 'MUA' 
       ? process.env.MONDAY_CHOSEN_MUA_COLUMN_ID 
       : process.env.MONDAY_CHOSEN_HS_COLUMN_ID
 
-    // Implementation would go here to fetch the chosen artist from Monday.com
-    // This is a placeholder - you'll need to implement based on Monday.com API
-    
+    if (!chosenArtistColumnId) {
+      console.error(`[getChosenArtist] No column ID configured for ${serviceType}`)
+      return null
+    }
+
+    console.log(`[getChosenArtist] Fetching chosen artist for client ${mondayItemId}, column ${chosenArtistColumnId}`)
+
+    // Query Monday.com to get the chosen artist column value
+    const query = `
+      query GetChosenArtist($itemId: ID!) {
+        items(ids: [$itemId]) {
+          id
+          column_values(ids: ["${chosenArtistColumnId}"]) {
+            id
+            text
+            value
+          }
+        }
+      }
+    `
+
+    const response = await axios.post(
+      'https://api.monday.com/v2',
+      { query, variables: { itemId: mondayItemId } },
+      { headers: { Authorization: process.env.MONDAY_API_TOKEN || '', 'Content-Type': 'application/json' } }
+    )
+
+    const item = response.data?.data?.items?.[0]
+    if (!item) {
+      console.log(`[getChosenArtist] Item ${mondayItemId} not found`)
+      return null
+    }
+
+    const chosenArtistColumn = item.column_values?.[0]
+    if (!chosenArtistColumn) {
+      console.log(`[getChosenArtist] Column ${chosenArtistColumnId} not found on item ${mondayItemId}`)
+      return null
+    }
+
+    console.log(`[getChosenArtist] Column data:`, {
+      id: chosenArtistColumn.id,
+      text: chosenArtistColumn.text,
+      value: chosenArtistColumn.value
+    })
+
+    // Parse the connect_boards column value to get the linked artist item ID
+    // Monday.com connect_boards columns return JSON with linked_pulse_ids
+    if (chosenArtistColumn.value) {
+      try {
+        const parsed = JSON.parse(chosenArtistColumn.value)
+        const linkedIds = parsed?.linkedPulseIds || parsed?.linked_pulse_ids || []
+        
+        if (linkedIds.length > 0) {
+          const artistId = String(linkedIds[0]?.linkedPulseId || linkedIds[0])
+          console.log(`[getChosenArtist] Found chosen artist ID: ${artistId}`)
+          return artistId
+        }
+      } catch (e) {
+        console.error(`[getChosenArtist] Failed to parse column value:`, e)
+      }
+    }
+
+    console.log(`[getChosenArtist] No chosen artist found for ${serviceType} client ${mondayItemId}`)
     return null
   } catch (error) {
-    console.error('Error getting chosen artist from Monday.com:', error)
+    console.error('[getChosenArtist] Error getting chosen artist from Monday.com:', error)
     return null
   }
 }
