@@ -1095,6 +1095,21 @@ export async function respondToProposal({
         const pattern = displayName ? WHATSAPP_PATTERNS[displayName] : undefined
         const updatesText = updatesArr.map(u => (u?.text_body || '').toString()).join(' ')
         const patternPresent = !!(pattern && updatesText.includes(pattern))
+        
+        // Debug logging for pattern matching
+        console.log('[brides] Pattern matching debug', {
+          email,
+          displayName,
+          pattern,
+          updatesCount: updatesArr.length,
+          updatesTextLength: updatesText.length,
+          updatesTextPreview: updatesText.substring(0, 500),
+          patternPresent,
+          hasPattern: updatesText.includes(pattern || ''),
+          updates: updatesArr.map(u => ({
+            text_body: (u?.text_body || '').substring(0, 200)
+          }))
+        })
         // If the logged-in artist's WhatsApp pattern is present on the item, this strongly indicates
         // the status was "Travelling fee + inquire the artist" (since for second-option the exception
         // account is excluded from seeing the card). Otherwise, treat as "undecided/second-option" gating.
