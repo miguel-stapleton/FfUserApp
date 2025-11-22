@@ -1072,11 +1072,30 @@ export async function respondToProposal({
           }
         }
       `
+      
+      console.log('[brides] Querying Monday.com for item', {
+        mondayId,
+        apiUrl: MONDAY_API_URL,
+        hasToken: !!MONDAY_API_TOKEN,
+        tokenPrefix: MONDAY_API_TOKEN?.substring(0, 20)
+      })
+      
       const itemResp: any = await axios.post(
         MONDAY_API_URL,
         { query: itemQuery, variables: { id: [mondayId] } },
         { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
       )
+      
+      // Log full response to diagnose issues
+      console.log('[brides] Full Monday.com API response:', {
+        mondayId,
+        hasData: !!itemResp.data?.data,
+        hasErrors: !!itemResp.data?.errors,
+        errors: itemResp.data?.errors,
+        itemsCount: itemResp.data?.data?.items?.length || 0,
+        rawResponse: JSON.stringify(itemResp.data).substring(0, 500)
+      })
+      
       const itemData = itemResp.data?.data?.items?.[0]
       const cols: any[] = itemData?.column_values || []
       const updatesArr: any[] = itemData?.updates || []
@@ -1084,6 +1103,7 @@ export async function respondToProposal({
       console.log('[brides] Raw Monday.com response debug', {
         mondayId,
         hasItemData: !!itemData,
+        itemId: itemData?.id,
         columnsCount: cols.length,
         updatesCount: updatesArr.length,
         updatesRaw: updatesArr.slice(0, 3)
