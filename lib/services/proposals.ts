@@ -1064,7 +1064,7 @@ export async function respondToProposal({
         query GetItem($id: [ID!]) {
           items(ids: $id) {
             id
-            column_values { id text value title }
+            column_values { id text value type }
             updates(limit: 50) {
               text_body
               body
