@@ -16,18 +16,6 @@ export async function logAudit({
   details,
 }: AuditLogData): Promise<void> {
   try {
-    // Guard: AuditLog.entityId has an FK to ClientService.id in schema.prisma
-    // Only write if the provided entityId is a valid ClientService ID
-    const exists = await prisma.clientService.count({ where: { id: entityId } })
-    if (!exists) {
-      console.warn('[audit] Skipping audit write: entityId does not reference ClientService', {
-        action,
-        entityType,
-        entityId,
-      })
-      return
-    }
-
     await prisma.auditLog.create({
       data: {
         actorUserId: userId || null,

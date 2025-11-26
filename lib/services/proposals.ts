@@ -84,7 +84,7 @@ const HS_NAME_BY_EMAIL: Record<string, string> = {
   'olga.amaral.hilario@gmail.com': 'Olga H',
 }
 
-// Normalize emails for mapping lookups
+// Normalize emails for mappi ng lookups
 const normEmail = (e?: string | null) => (e || '').trim().toLowerCase()
 
 // Helper: find Polls item by matching Item IDD (guest/bride Monday item id)
@@ -605,7 +605,12 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
             try {
               const parsed = JSON.parse(mStatusCol.value)
               status = parsed?.label || status
-            } catch {}
+              console.log(`[DEBUG] Item ${item.id}: Parsed MStatus from value - label: ${parsed?.label}, index: ${parsed?.index}`)
+            } catch (e) {
+              console.log(`[DEBUG] Item ${item.id}: Failed to parse MStatus value:`, mStatusCol.value, 'Error:', e)
+            }
+          } else {
+            console.log(`[DEBUG] Item ${item.id}: MStatus text: '${status}'`)
           }
         }
       } else {
@@ -624,7 +629,12 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
             try {
               const parsed = JSON.parse(hStatusCol.value)
               status = parsed?.label || status
-            } catch {}
+              console.log(`[DEBUG] Item ${item.id}: Parsed HStatus from value - label: ${parsed?.label}, index: ${parsed?.index}`)
+            } catch (e) {
+              console.log(`[DEBUG] Item ${item.id}: Failed to parse HStatus value:`, hStatusCol.value, 'Error:', e)
+            }
+          } else {
+            console.log(`[DEBUG] Item ${item.id}: HStatus text: '${status}'`)
           }
         }
       }
