@@ -835,9 +835,15 @@ async function handleTravellingFeeStatus(
   console.log('[monday:webhook] Handling TRAVELLING for', { mondayItemId, serviceType })
 
   // Get the chosen artist from Monday.com
-  const chosenArtistColumnId = serviceType === 'MUA' 
-    ? process.env.MONDAY_CHOSEN_MUA_COLUMN_ID 
-    : process.env.MONDAY_CHOSEN_HS_COLUMN_ID
+  // Apply placeholder-aware fallback so .env containing the example values from
+  // .env.example ("chosen_mua_column_id" / "chosen_hs_column_id") still resolves
+  // to the real Monday column IDs ("connect_boards" / "connect_boards0").
+  const rawChosenCol = serviceType === 'MUA'
+    ? process.env.MONDAY_CHOSEN_MUA_COLUMN_ID?.trim()
+    : process.env.MONDAY_CHOSEN_HS_COLUMN_ID?.trim()
+  const chosenPlaceholder = serviceType === 'MUA' ? 'chosen_mua_column_id' : 'chosen_hs_column_id'
+  const chosenDefault = serviceType === 'MUA' ? 'connect_boards' : 'connect_boards0'
+  const chosenArtistColumnId = !rawChosenCol || rawChosenCol === chosenPlaceholder ? chosenDefault : rawChosenCol
 
   if (!chosenArtistColumnId) {
     console.error(`No chosen artist column ID configured for ${serviceType}`)
@@ -976,9 +982,13 @@ async function getChosenArtistFromClient(
   serviceType: 'MUA' | 'HS'
 ): Promise<string | null> {
   try {
-    const chosenArtistColumnId = serviceType === 'MUA' 
-      ? process.env.MONDAY_CHOSEN_MUA_COLUMN_ID 
-      : process.env.MONDAY_CHOSEN_HS_COLUMN_ID
+    // Apply placeholder-aware fallback (see handleTravellingFeeStatus for rationale).
+    const rawChosenCol = serviceType === 'MUA'
+      ? process.env.MONDAY_CHOSEN_MUA_COLUMN_ID?.trim()
+      : process.env.MONDAY_CHOSEN_HS_COLUMN_ID?.trim()
+    const chosenPlaceholder = serviceType === 'MUA' ? 'chosen_mua_column_id' : 'chosen_hs_column_id'
+    const chosenDefault = serviceType === 'MUA' ? 'connect_boards' : 'connect_boards0'
+    const chosenArtistColumnId = !rawChosenCol || rawChosenCol === chosenPlaceholder ? chosenDefault : rawChosenCol
 
     if (!chosenArtistColumnId) {
       console.error(`[getChosenArtist] No column ID configured for ${serviceType}`)
