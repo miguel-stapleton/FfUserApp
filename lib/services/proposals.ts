@@ -643,9 +643,12 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
         console.log('No status found for item:', item.id, 'Available columns:', columnValues.map((c:any)=>`${c.id}:${c.text}`).slice(0,10))
       }
 
-      // Exact matching for status values per requirements
+      // Exact matching for status values per requirements.
+      // MUA column uses "Travelling fee + inquire the artist" (with "the").
+      // HS column uses "Travelling fee + inquire artist" (no "the"). Both are valid.
       const targetsExact = [
         'Travelling fee + inquire the artist',
+        'Travelling fee + inquire artist',
         'undecided- inquire availabilities',
         'inquire second option',
         // HS variant label
@@ -663,12 +666,15 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
       }
 
       let shouldInclude = false
+      const isTravellingInquireArtist =
+        status === 'Travelling fee + inquire the artist' ||
+        status === 'Travelling fee + inquire artist'
 
       // Apply filtering logic based on status
-      if (status === 'Travelling fee + inquire the artist') {
+      if (isTravellingInquireArtist) {
         // Check if whatsapp pattern exists in updates
         if (whatsappPattern) {
-          shouldInclude = updates.some((update: any) => 
+          shouldInclude = updates.some((update: any) =>
             update.text_body?.includes(whatsappPattern)
           )
         }
@@ -1183,7 +1189,8 @@ export async function respondToProposal({
           }
         } else {
           if (patternPresent) {
-            hStatusLabel = 'Travelling fee + inquire the artist'
+            // HS column wording (no "the").
+            hStatusLabel = 'Travelling fee + inquire artist'
           } else {
             hStatusLabel = 'undecided- inquire availabilities'
           }
@@ -1195,8 +1202,12 @@ export async function respondToProposal({
     }
 
     const normalize = (s: string) => (s || '').toLowerCase().replace(/[–—]/g, '-').replace(/\s+/g, ' ').trim()
+    // MUA column uses "Travelling fee + inquire the artist" (with "the").
+    // HS column uses "Travelling fee + inquire artist" (no "the"). Accept both for HS.
     const isTravellingInquireArtist_M = normalize(mStatusLabel) === 'travelling fee + inquire the artist'
-    const isTravellingInquireArtist_H = normalize(hStatusLabel) === 'travelling fee + inquire the artist'
+    const isTravellingInquireArtist_H =
+      normalize(hStatusLabel) === 'travelling fee + inquire the artist' ||
+      normalize(hStatusLabel) === 'travelling fee + inquire artist'
     const isSecondOption_M = normalize(mStatusLabel) === 'inquire second option'
     const isSecondOption_H = normalize(hStatusLabel) === 'travelling fee + inquire second option'
     const isUndecided_M = normalize(mStatusLabel) === 'undecided- inquire availabilities' || normalize(mStatusLabel) === 'undecided - inquire availabilities'

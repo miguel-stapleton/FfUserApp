@@ -36,7 +36,17 @@ function normalizeStatus(s: string | undefined | null) {
 }
 
 const TARGET_UNDECIDED = normalizeStatus('undecided – inquire availabilities')
-const TARGET_TRAVELLING = normalizeStatus('Travelling fee + inquire the artist')
+// MUA column uses "Travelling fee + inquire the artist" (with "the").
+// HS column uses "Travelling fee + inquire artist" (no "the"). Intentional.
+const TARGET_TRAVELLING_M = normalizeStatus('Travelling fee + inquire the artist')
+const TARGET_TRAVELLING_H = normalizeStatus('Travelling fee + inquire artist')
+// Legacy alias preserved for any third-party imports; equals the MUA variant.
+const TARGET_TRAVELLING = TARGET_TRAVELLING_M
+function isTravellingFor(serviceType: 'MUA' | 'HS', normStatus: string): boolean {
+  return serviceType === 'MUA'
+    ? normStatus === TARGET_TRAVELLING_M
+    : normStatus === TARGET_TRAVELLING_H
+}
 const TARGET_SECOND_OPTION_M = normalizeStatus('inquire second option')
 const TARGET_SECOND_OPTION_H = normalizeStatus('Travelling fee + inquire second option')
 const WEBHOOK_VERSION = 'monday-webhook-v3-2025-10-11-12:56'
@@ -209,89 +219,92 @@ async function handleCreatePulse(event: any) {
 
   const mStatusNorm = normalizeStatus(client.mStatus || '')
   const hStatusNorm = normalizeStatus(client.hStatus || '')
-  console.log('[monday:create_pulse:status]', { mRaw: client.mStatus, mNorm: mStatusNorm, hRaw: client.hStatus, hNorm: hStatusNorm, TARGET_TRAVELLING })
-  if (mStatusNorm !== TARGET_TRAVELLING && hStatusNorm !== TARGET_TRAVELLING) {
+  const muaTravelling = mStatusNorm === TARGET_TRAVELLING_M
+  const hsTravelling = hStatusNorm === TARGET_TRAVELLING_H
+  console.log('[monday:create_pulse:status]', {
+    mRaw: client.mStatus,
+    mNorm: mStatusNorm,
+    hRaw: client.hStatus,
+    hNorm: hStatusNorm,
+    TARGET_TRAVELLING_M,
+    TARGET_TRAVELLING_H,
+    muaTravelling,
+    hsTravelling,
+  })
+  if (!muaTravelling && !hsTravelling) {
     return // Only act on Travelling fee at creation (either MUA or HS)
   }
-  let serviceType: 'MUA' | 'HS' = mStatusNorm === TARGET_TRAVELLING ? 'MUA' : 'HS'
-  const PRIMARY_MAPPING = serviceType === 'MUA' ? NAME_TO_EMAIL : NAME_TO_EMAIL_HS
-  const SECONDARY_MAPPING = serviceType === 'MUA' ? NAME_TO_EMAIL_HS : NAME_TO_EMAIL
+
+  // Process each service type independently — the form may have chosen
+  // both a MUA and an HS, and both should be notified.
+  if (muaTravelling) {
+    await processCreatePulseForService('MUA', String(itemId), client)
+  }
+  if (hsTravelling) {
+    await processCreatePulseForService('HS', String(itemId), client)
+  }
+}
+
+// Resolve the chosen artist for a single service type via the
+// "copy paste para whatsapp de <name>" phrase in the item updates,
+// then create a SINGLE batch and push the chosen artist.
+async function processCreatePulseForService(
+  serviceType: 'MUA' | 'HS',
+  itemId: string,
+  client: { name: string; eventDate: Date | null }
+) {
+  const MAPPING = serviceType === 'MUA' ? NAME_TO_EMAIL : NAME_TO_EMAIL_HS
 
   // Attempts to read updates immediately, with up to 2 short retries
   let attempts = 0
   let chosenEmail: string | null = null
-  let matchedServiceType: 'MUA' | 'HS' | null = null
   while (attempts < 3 && !chosenEmail) {
     attempts++
-    const updates = await getItemUpdates(String(itemId))
+    const updates = await getItemUpdates(itemId)
     const combinedTexts = updates
       .map(u => normalizeText(u.text_body || u.body || ''))
       .filter(Boolean)
 
     const phrase = 'copy paste para whatsapp de '
     for (const text of combinedTexts) {
-      if (text.includes(phrase)) {
-        // Extract tail after the phrase up to newline or end
-        const idx = text.indexOf(phrase)
-        const tail = text.slice(idx + phrase.length).trim()
-        // Try to match any known name against tail
-        // First, try primary mapping based on which status was set
-        for (const nameKey of Object.keys(PRIMARY_MAPPING)) {
-          const keyNorm = normalizeText(nameKey)
-          if (tail.startsWith(keyNorm) || tail.includes(` ${keyNorm}`) || tail.includes(`${keyNorm} `)) {
-            chosenEmail = PRIMARY_MAPPING[nameKey]
-            matchedServiceType = serviceType
-            break
-          }
+      if (!text.includes(phrase)) continue
+      const idx = text.indexOf(phrase)
+      const tail = text.slice(idx + phrase.length).trim()
+      for (const nameKey of Object.keys(MAPPING)) {
+        const keyNorm = normalizeText(nameKey)
+        if (tail.startsWith(keyNorm) || tail.includes(` ${keyNorm}`) || tail.includes(`${keyNorm} `)) {
+          chosenEmail = MAPPING[nameKey]
+          break
         }
-        // If not found, try the secondary mapping and set service type accordingly
-        if (!chosenEmail) {
-          for (const nameKey of Object.keys(SECONDARY_MAPPING)) {
-            const keyNorm = normalizeText(nameKey)
-            if (tail.startsWith(keyNorm) || tail.includes(` ${keyNorm}`) || tail.includes(`${keyNorm} `)) {
-              chosenEmail = SECONDARY_MAPPING[nameKey]
-              matchedServiceType = serviceType === 'MUA' ? 'HS' : 'MUA'
-              break
-            }
-          }
-        }
-        if (chosenEmail) break
       }
+      if (chosenEmail) break
     }
 
     if (!chosenEmail && attempts < 3) {
-      console.log('[monday:create_pulse] No whatsapp name yet, retrying shortly...', { attempts })
+      console.log(`[monday:create_pulse:${serviceType}] No whatsapp name yet, retrying shortly...`, { attempts })
       await new Promise(res => setTimeout(res, 2000))
     }
   }
 
   if (!chosenEmail) {
-    console.warn('[monday:create_pulse] Could not resolve chosen artist from updates after retries', { itemId })
+    console.warn(`[monday:create_pulse:${serviceType}] Could not resolve chosen artist from updates after retries`, { itemId })
     return
   }
 
-  // If we matched via the secondary map, update the serviceType accordingly
-  if (matchedServiceType) {
-    serviceType = matchedServiceType
-  }
-
-  // Find artist by email
   const artist = await prisma.artist.findFirst({ where: { email: chosenEmail, type: serviceType, active: true } })
   if (!artist) {
-    console.warn('[monday:create_pulse] Chosen artist not found or inactive', { chosenEmail })
+    console.warn(`[monday:create_pulse:${serviceType}] Chosen artist not found or inactive`, { chosenEmail })
     return
   }
 
-  // Ensure ClientService
   let clientServiceId: string
   try {
-    clientServiceId = await upsertClientServiceFromMonday(String(itemId), serviceType as any)
+    clientServiceId = await upsertClientServiceFromMonday(itemId, serviceType as any)
   } catch (e) {
-    console.error('[monday:create_pulse] upsertClientServiceFromMonday failed', e)
+    console.error(`[monday:create_pulse:${serviceType}] upsertClientServiceFromMonday failed`, e)
     return
   }
 
-  // Create SINGLE batch targeting chosen artist
   const { batchId, proposalCount } = await createBatchAndProposals(
     clientServiceId,
     'SINGLE',
@@ -299,7 +312,6 @@ async function handleCreatePulse(event: any) {
     1
   )
 
-  // Audit
   await logAudit({
     action: 'STARTED',
     entityType: 'BATCH',
@@ -312,11 +324,10 @@ async function handleCreatePulse(event: any) {
       chosenArtistEmail: artist.email,
       proposalCount,
       timestamp: new Date().toISOString(),
-      note: 'SINGLE batch started from create_pulse Travelling fee',
+      note: `SINGLE batch started from create_pulse Travelling fee (${serviceType})`,
     },
   })
 
-  // Send push
   await sendNewProposalNotification(
     [artist.id],
     client.name,
@@ -494,18 +505,23 @@ export async function POST(request: NextRequest) {
     }
 
     // Visibility: show matching decisions
-    console.log('[monday:webhook:match]', {
-      columnId,
-      M_COL,
-      H_COL,
-      isMcol: columnId === M_COL,
-      isHcol: columnId === H_COL,
-      newStatus: normalizeStatus(value?.label?.text || value?.text || value?.label || ''),
-      TARGET_UNDECIDED,
-      statusMatchesUndecided: normalizeStatus(value?.label?.text || value?.text || value?.label || '') === TARGET_UNDECIDED,
-      TARGET_TRAVELLING,
-      statusMatchesTravelling: normalizeStatus(value?.label?.text || value?.text || value?.label || '') === TARGET_TRAVELLING,
-    })
+    {
+      const newNorm = normalizeStatus(value?.label?.text || value?.text || value?.label || '')
+      console.log('[monday:webhook:match]', {
+        columnId,
+        M_COL,
+        H_COL,
+        isMcol: columnId === M_COL,
+        isHcol: columnId === H_COL,
+        newStatus: newNorm,
+        TARGET_UNDECIDED,
+        statusMatchesUndecided: newNorm === TARGET_UNDECIDED,
+        TARGET_TRAVELLING_M,
+        TARGET_TRAVELLING_H,
+        statusMatchesTravellingM: newNorm === TARGET_TRAVELLING_M,
+        statusMatchesTravellingH: newNorm === TARGET_TRAVELLING_H,
+      })
+    }
 
     // Extract status texts and normalize
     const newStatus = normalizeStatus(value?.label?.text || value?.text || value?.label || '')
@@ -604,8 +620,9 @@ async function handleStatusChange(
       await handleSecondOptionStatus(mondayItemId, 'HS', serviceTypeEnum, timestamp)
     }
 
-    // Handle "Travelling fee + inquire the artist"
-    if (newStatus === TARGET_TRAVELLING) {
+    // Handle "Travelling fee + inquire the artist" (MUA wording) and
+    // "Travelling fee + inquire artist" (HS wording, no "the").
+    if (isTravellingFor(serviceType, newStatus)) {
       await handleTravellingFeeStatus(mondayItemId, serviceType, serviceTypeEnum, timestamp)
     }
 
