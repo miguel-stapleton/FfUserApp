@@ -66,47 +66,62 @@ export async function GET(request: NextRequest) {
     const companionColumnId =
       artist.type === 'MUA' ? MONDAY_CHOSEN_HS_COLUMN_ID : MONDAY_CHOSEN_MUA_COLUMN_ID
 
-    // Use items_by_column_values to pre-filter by booked status — much faster than a full
-    // board scan because Monday does the filtering server-side.
+    // Use items_page_by_column_values to pre-filter by booked status — much faster than a
+    // full board scan because Monday does the filtering server-side.
     const mondayQuery = `
-      query GetBookedItems($boardId: ID!, $colId: String!, $val: String!) {
-        items_by_column_values(
+      query GetBookedItems($boardId: ID!, $colId: String!, $val: String!, $cursor: String) {
+        items_page_by_column_values(
           board_id: $boardId
           column_id: $colId
           column_value: $val
           limit: 500
+          cursor: $cursor
         ) {
-          id
-          name
-          column_values { id text value }
+          cursor
+          items {
+            id
+            name
+            column_values { id text value }
+          }
         }
       }
     `
 
-    const resp = await axios.post(
-      MONDAY_API_URL,
-      {
-        query: mondayQuery,
-        variables: {
-          boardId: MONDAY_CLIENTS_BOARD_ID,
-          colId: statusColumnId,
-          val: bookedStatus,
+    let allBooked: any[] = []
+    let cursor: string | null = null
+    let hasMore = true
+
+    while (hasMore) {
+      const resp = await axios.post(
+        MONDAY_API_URL,
+        {
+          query: mondayQuery,
+          variables: {
+            boardId: MONDAY_CLIENTS_BOARD_ID,
+            colId: statusColumnId,
+            val: bookedStatus,
+            cursor,
+          },
         },
-      },
-      {
-        headers: {
-          Authorization: MONDAY_API_TOKEN,
-          'Content-Type': 'application/json',
-        },
+        {
+          headers: {
+            Authorization: MONDAY_API_TOKEN,
+            'Content-Type': 'application/json',
+          },
+        }
+      )
+
+      if (resp.data?.errors) {
+        console.error('[my-booked-brides] Monday API errors:', resp.data.errors)
+        return NextResponse.json({ error: 'Monday API error' }, { status: 502 })
       }
-    )
 
-    if (resp.data?.errors) {
-      console.error('[my-booked-brides] Monday API errors:', resp.data.errors)
-      return NextResponse.json({ error: 'Monday API error' }, { status: 502 })
+      const page = resp.data?.data?.items_page_by_column_values
+      if (!page) break
+      allBooked = allBooked.concat(page.items || [])
+      cursor = page.cursor
+      hasMore = !!cursor
     }
-
-    const allBooked: any[] = resp.data?.data?.items_by_column_values || []
     console.log(
       `[my-booked-brides] ${artist.email} (${artist.type}): ${allBooked.length} booked items from Monday`
     )
