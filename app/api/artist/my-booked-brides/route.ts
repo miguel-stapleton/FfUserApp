@@ -69,11 +69,10 @@ export async function GET(request: NextRequest) {
     // Use items_page_by_column_values to pre-filter by booked status — much faster than a
     // full board scan because Monday does the filtering server-side.
     const mondayQuery = `
-      query GetBookedItems($boardId: ID!, $colId: String!, $val: String!, $cursor: String) {
+      query GetBookedItems($boardId: ID!, $columns: [ItemsPageByColumnValuesQuery!], $cursor: String) {
         items_page_by_column_values(
           board_id: $boardId
-          column_id: $colId
-          column_value: $val
+          columns: $columns
           limit: 500
           cursor: $cursor
         ) {
@@ -98,8 +97,7 @@ export async function GET(request: NextRequest) {
           query: mondayQuery,
           variables: {
             boardId: MONDAY_CLIENTS_BOARD_ID,
-            colId: statusColumnId,
-            val: bookedStatus,
+            columns: [{ column_id: statusColumnId, column_values: [bookedStatus] }],
             cursor,
           },
         },
