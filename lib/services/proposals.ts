@@ -452,11 +452,15 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
 
     // ── 1. Bride proposals from DB ────────────────────────────────────────────
     // Single indexed query replaces the previous full Monday board pagination.
+    // We also guard on deadlineAt > now: any OPEN batch whose 24-hour window has
+    // already passed is stale (the cron should have closed it, but may not have
+    // for older records). Only show proposals that are still within their active
+    // window — this matches the intended business logic.
     const dbProposals = await prisma.proposal.findMany({
       where: {
         artistId: artist.id,
         response: null,
-        proposalBatch: { state: 'OPEN' },
+        proposalBatch: { state: 'OPEN', deadlineAt: { gt: new Date() } },
       },
       include: {
         proposalBatch: true,
