@@ -92,7 +92,7 @@ export async function GET(request: NextRequest) {
     let hasMore = true
 
     while (hasMore) {
-      const resp = await axios.post(
+      const resp: any = await axios.post(
         MONDAY_API_URL,
         {
           query: mondayQuery,
