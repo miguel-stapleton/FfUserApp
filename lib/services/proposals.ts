@@ -471,22 +471,11 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
 
     console.log('Open DB proposals found:', dbProposals.length)
 
-    const proposals: ArtistProposalCard[] = dbProposals.map(p => ({
-      // Return the Monday item ID as `id` so the respond endpoint routes correctly
-      // through its existing Monday side-effects path (Pode!, Polls, comments, etc.)
-      id: p.clientService.mondayClientItemId,
-      batchId: p.proposalBatchId,
-      clientName: p.clientService.bridesName,
-      serviceType: artist.type as any,
-      eventDate: p.clientService.weddingDate,
-      beautyVenue: p.clientService.beautyVenue || '',
-      observations: p.clientService.description || '',
-      createdAt: p.createdAt,
-      isExpired: false,
-    }))
-
-    // ── 2. Independent Guests from Monday ────────────────────────────────────
-    // Build the set of already-responded client IDs so we can filter guests.
+    // Build the set of clients this artist has EVER responded to (across all batches).
+    // This is critical: a single client can accumulate multiple ProposalBatch rows if
+    // the Monday webhook fires more than once (e.g. status toggled). Responding only
+    // closes one batch's proposal; others stay response=null. Without this filter
+    // those orphan proposals would keep re-appearing even after the artist answered.
     const respondedProposals = await prisma.proposal.findMany({
       where: {
         artistId: artist.id,
@@ -497,6 +486,38 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
     const respondedClientIds = new Set(
       respondedProposals.map(p => p.clientService.mondayClientItemId)
     )
+
+    console.log('Artist has prior responses for', respondedClientIds.size, 'clients')
+
+    // Also deduplicate by mondayClientItemId: if multiple open batches exist for the
+    // same client, only surface one card (the newest). The set below tracks which
+    // clients we've already added so subsequent duplicates are skipped.
+    const seenClientIds = new Set<string>()
+
+    const proposals: ArtistProposalCard[] = dbProposals
+      .filter(p => {
+        const clientId = p.clientService.mondayClientItemId
+        if (respondedClientIds.has(clientId)) return false  // already answered
+        if (seenClientIds.has(clientId)) return false        // duplicate batch
+        seenClientIds.add(clientId)
+        return true
+      })
+      .map(p => ({
+        // Return the Monday item ID as `id` so the respond endpoint routes correctly
+        // through its existing Monday side-effects path (Pode!, Polls, comments, etc.)
+        id: p.clientService.mondayClientItemId,
+        batchId: p.proposalBatchId,
+        clientName: p.clientService.bridesName,
+        serviceType: artist.type as any,
+        eventDate: p.clientService.weddingDate,
+        beautyVenue: p.clientService.beautyVenue || '',
+        observations: p.clientService.description || '',
+        createdAt: p.createdAt,
+        isExpired: false,
+      }))
+
+    // ── 2. Independent Guests from Monday ────────────────────────────────────
+    // respondedClientIds is already built above — reuse it for guest filtering.
 
     console.log('Artist has already responded to', respondedClientIds.size, 'clients')
 
