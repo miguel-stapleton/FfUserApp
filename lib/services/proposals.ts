@@ -421,11 +421,19 @@ export async function createBatchForSpecificArtists(
 }
 
 /**
- * Get open proposals for an artist from Monday.com
+ * Get open proposals for an artist.
+ *
+ * Strategy:
+ *   1. Bride proposals — served from the local PostgreSQL DB (fast indexed query).
+ *      The webhook already writes ClientService + ProposalBatch + Proposal records
+ *      whenever a status change triggers a notification, so the DB is always current.
+ *   2. Independent Guests — still fetched from the Monday Guests board because guest
+ *      ClientService rows are created lazily (only on response), so they don't exist
+ *      in the DB at list time.
  */
 export async function getOpenProposalsForArtist(userId: string): Promise<ArtistProposalCard[]> {
   try {
-    console.log('=== GET OPEN PROPOSALS DEBUG ===')
+    console.log('=== GET OPEN PROPOSALS (DB-first) ===')
     console.log('User ID:', userId)
 
     // Get artist record
@@ -441,287 +449,53 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
 
     console.log('Artist email:', artist.email)
     console.log('Artist type:', artist.type)
-    console.log('Artist Monday Item ID:', artist.mondayItemId)
 
-    if (!artist.mondayItemId) {
-      console.log('Artist has no Monday Item ID')
-      return []
-    }
+    // ── 1. Bride proposals from DB ────────────────────────────────────────────
+    // Single indexed query replaces the previous full Monday board pagination.
+    const dbProposals = await prisma.proposal.findMany({
+      where: {
+        artistId: artist.id,
+        response: null,
+        proposalBatch: { state: 'OPEN' },
+      },
+      include: {
+        proposalBatch: true,
+        clientService: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    })
 
-    // Get all client IDs where this artist has already responded
+    console.log('Open DB proposals found:', dbProposals.length)
+
+    const proposals: ArtistProposalCard[] = dbProposals.map(p => ({
+      // Return the Monday item ID as `id` so the respond endpoint routes correctly
+      // through its existing Monday side-effects path (Pode!, Polls, comments, etc.)
+      id: p.clientService.mondayClientItemId,
+      batchId: p.proposalBatchId,
+      clientName: p.clientService.bridesName,
+      serviceType: artist.type as any,
+      eventDate: p.clientService.weddingDate,
+      beautyVenue: p.clientService.beautyVenue || '',
+      observations: p.clientService.description || '',
+      createdAt: p.createdAt,
+      isExpired: false,
+    }))
+
+    // ── 2. Independent Guests from Monday ────────────────────────────────────
+    // Build the set of already-responded client IDs so we can filter guests.
     const respondedProposals = await prisma.proposal.findMany({
       where: {
         artistId: artist.id,
         response: { not: null },
       },
-      include: {
-        clientService: true,
-      },
+      include: { clientService: true },
     })
-
     const respondedClientIds = new Set(
       respondedProposals.map(p => p.clientService.mondayClientItemId)
     )
 
     console.log('Artist has already responded to', respondedClientIds.size, 'clients')
 
-    // Determine artist type and get their Monday.com name
-    const artistQuery = `
-      query GetArtistItem($itemId: ID!) {
-        items(ids: [$itemId]) {
-          id
-          name
-        }
-      }
-    `
-
-    console.log('Fetching artist from Monday.com...')
-    
-    const artistResponse = await axios.post(
-      MONDAY_API_URL,
-      {
-        query: artistQuery,
-        variables: { itemId: artist.mondayItemId },
-      },
-      {
-        headers: {
-          'Authorization': MONDAY_API_TOKEN,
-          'Content-Type': 'application/json',
-        },
-      }
-    )
-
-    if (artistResponse.data.errors) {
-      console.error('Monday API errors:', artistResponse.data.errors)
-      throw new Error(`Monday API Error: ${JSON.stringify(artistResponse.data.errors)}`)
-    }
-
-    const artistItem = artistResponse.data.data.items[0]
-    if (!artistItem) {
-      console.log('Artist not found in Monday.com')
-      return []
-    }
-
-    console.log('Artist name from Monday:', artistItem.name)
-
-    const artistFirstName = getArtistFirstName(artistItem.name)
-    const whatsappPattern = WHATSAPP_PATTERNS[artistFirstName]
-
-    console.log('Artist first name:', artistFirstName)
-    console.log('Whatsapp pattern:', whatsappPattern)
-
-    // Fetch ALL clients from Monday.com with pagination
-    console.log('Fetching clients from Monday.com...')
-    let allItems: any[] = []
-    let cursor: string | null = null
-    let hasMore = true
-
-    // Use the Clients board for all artists
-    const boardIdToUse = MONDAY_BOARD_ID
-
-    while (hasMore) {
-      const clientsQuery = `
-        query GetBoardItems($boardId: ID!, $cursor: String) {
-          boards(ids: [$boardId]) {
-            items_page(limit: 100, cursor: $cursor) {
-              cursor
-              items {
-                id
-                name
-                column_values {
-                  id
-                  text
-                  value
-                }
-                updates {
-                  id
-                  text_body
-                }
-              }
-            }
-          }
-        }
-      `
-
-      const clientsResponse: any = await axios.post(
-        MONDAY_API_URL,
-        {
-          query: clientsQuery,
-          variables: { boardId: boardIdToUse, cursor },
-        },
-        {
-          headers: {
-            'Authorization': MONDAY_API_TOKEN,
-            'Content-Type': 'application/json',
-          },
-        }
-      )
-
-      if (clientsResponse.data.errors) {
-        console.error('Monday API errors:', clientsResponse.data.errors)
-        throw new Error(`Monday API Error: ${JSON.stringify(clientsResponse.data.errors)}`)
-      }
-
-      const board = clientsResponse.data.data.boards[0]
-      if (!board || !board.items_page) {
-        break
-      }
-
-      allItems = [...allItems, ...board.items_page.items]
-      cursor = board.items_page.cursor
-      hasMore = !!cursor
-    }
-
-    console.log('Total clients fetched:', allItems.length)
-
-    const proposals: ArtistProposalCard[] = []
-
-    console.log('Artist type:', artist.type)
-
-    for (const item of allItems) {
-      const columnValues = item.column_values || []
-      const updates = item.updates || []
-
-      // Get bride's name
-      const brideNameColumn = columnValues.find((col: any) => col.id === 'short_text8')
-      const brideName = brideNameColumn?.text
-      if (!brideName) continue
-
-      // ONLY check the status column that matches the artist's service type
-      let status: string | undefined
-      if (artist.type === 'MUA') {
-        // Prefer env-provided MUA status column id, fallback to common titles
-        let mStatusCol = columnValues.find((col: any) => col.id === MONDAY_MSTATUS_COLUMN_ID)
-        if (!mStatusCol) {
-          mStatusCol = columnValues.find((col: any) =>
-            col.id === 'project_status' ||
-            col.title?.toLowerCase().includes('mstatus') ||
-            col.title?.toLowerCase().includes('status')
-          )
-        }
-        if (mStatusCol) {
-          status = mStatusCol.text
-          if ((!status || status.length === 0) && mStatusCol.value) {
-            try {
-              const parsed = JSON.parse(mStatusCol.value)
-              status = parsed?.label || status
-              console.log(`[DEBUG] Item ${item.id}: Parsed MStatus from value - label: ${parsed?.label}, index: ${parsed?.index}`)
-            } catch (e) {
-              console.log(`[DEBUG] Item ${item.id}: Failed to parse MStatus value:`, mStatusCol.value, 'Error:', e)
-            }
-          } else {
-            console.log(`[DEBUG] Item ${item.id}: MStatus text: '${status}'`)
-          }
-        }
-      } else {
-        // Prefer env-provided HS status column id, fallback to common titles
-        let hStatusCol = columnValues.find((col: any) => col.id === MONDAY_HSTATUS_COLUMN_ID)
-        if (!hStatusCol) {
-          hStatusCol = columnValues.find((col: any) =>
-            col.id === 'dup__of_mstatus' ||
-            col.title?.toLowerCase().includes('hstatus') ||
-            col.title?.toLowerCase().includes('status')
-          )
-        }
-        if (hStatusCol) {
-          status = hStatusCol.text
-          if ((!status || status.length === 0) && hStatusCol.value) {
-            try {
-              const parsed = JSON.parse(hStatusCol.value)
-              status = parsed?.label || status
-              console.log(`[DEBUG] Item ${item.id}: Parsed HStatus from value - label: ${parsed?.label}, index: ${parsed?.index}`)
-            } catch (e) {
-              console.log(`[DEBUG] Item ${item.id}: Failed to parse HStatus value:`, hStatusCol.value, 'Error:', e)
-            }
-          } else {
-            console.log(`[DEBUG] Item ${item.id}: HStatus text: '${status}'`)
-          }
-        }
-      }
-
-      if (!status) {
-        console.log('No status found for item:', item.id, 'Available columns:', columnValues.map((c:any)=>`${c.id}:${c.text}`).slice(0,10))
-      }
-
-      // Exact matching for status values per requirements.
-      // MUA column uses "Travelling fee + inquire the artist" (with "the").
-      // HS column uses "Travelling fee + inquire artist" (no "the"). Both are valid.
-      const targetsExact = [
-        'Travelling fee + inquire the artist',
-        'Travelling fee + inquire artist',
-        'undecided- inquire availabilities',
-        'inquire second option',
-        // HS variant label
-        'Travelling fee + inquire second option',
-      ]
-
-      if (!status || !targetsExact.includes(status)) {
-        continue
-      }
-
-      // Skip if artist has already responded to this client (persisted in DB)
-      if (respondedClientIds.has(String(item.id))) {
-        console.log('Skipping client (already responded):', brideName, 'Item ID:', item.id)
-        continue
-      }
-
-      let shouldInclude = false
-      const isTravellingInquireArtist =
-        status === 'Travelling fee + inquire the artist' ||
-        status === 'Travelling fee + inquire artist'
-
-      // Apply filtering logic based on status
-      if (isTravellingInquireArtist) {
-        // Check if whatsapp pattern exists in updates
-        if (whatsappPattern) {
-          shouldInclude = updates.some((update: any) =>
-            update.text_body?.includes(whatsappPattern)
-          )
-        }
-      } else if (status === 'undecided- inquire availabilities') {
-        // Show all
-        shouldInclude = true
-      } else if (status === 'inquire second option' || status === 'Travelling fee + inquire second option') {
-        // New rule: show to all except the "exception account" whose whatsapp phrase appears in updates
-        // If the updates contain the logged-in artist's whatsapp phrase, exclude them; otherwise include
-        const myWhatsappPattern = whatsappPattern
-        if (myWhatsappPattern) {
-          const isException = updates.some((update: any) => update.text_body?.includes(myWhatsappPattern))
-          shouldInclude = !isException
-        } else {
-          // If we couldn't build a pattern, default to include
-          shouldInclude = true
-        }
-      }
-
-      if (shouldInclude) {
-        // Get wedding date
-        const dateColumn = columnValues.find((col: any) => col.id === 'date6')
-        const eventDate = dateColumn?.text ? new Date(dateColumn.text) : new Date()
-
-        // Get beauty venue
-        const venueColumn = columnValues.find((col: any) => col.id === 'short_text1')
-        const beautyVenue = venueColumn?.text || ''
-
-        // Get description
-        const descColumn = columnValues.find((col: any) => col.id === 'long_text4')
-        const observations = descColumn?.text || ''
-
-        proposals.push({
-          id: item.id,
-          batchId: 'monday-' + item.id, // Virtual batch ID for Monday.com items
-          clientName: brideName,
-          serviceType: artist.type as any,
-          eventDate,
-          beautyVenue,
-          observations,
-          createdAt: new Date(),
-          isExpired: false,
-        })
-      }
-    }
-
-    // Also fetch Independent Guests board per requirements
     try {
       let guestItems: any[] = []
       let gCursor: string | null = null
@@ -830,7 +604,7 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
     }
 
     console.log('Total proposals found:', proposals.length)
-    console.log('=== END GET OPEN PROPOSALS DEBUG ===\n')
+    console.log('=== END GET OPEN PROPOSALS ===\n')
 
     return proposals
   } catch (error) {
