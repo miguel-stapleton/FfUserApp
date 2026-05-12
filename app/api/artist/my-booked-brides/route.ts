@@ -26,18 +26,29 @@ const MONDAY_CHOSEN_HS_COLUMN_ID =
     : process.env.MONDAY_CHOSEN_HS_COLUMN_ID
 
 /**
- * Parse the linkedPulseIds array out of a connect_boards column JSON value.
- * Monday returns something like: {"linkedPulseIds":[{"linkedPulseId":1234567890}]}
+ * Extract linked item IDs from a connect_boards column value.
+ * Handles two formats:
+ *  1. BoardRelationValue inline fragment → col.linked_item_ids (string[])
+ *  2. Legacy JSON value field           → {"linkedPulseIds":[{"linkedPulseId":123}]}
  */
-function parseLinkedPulseIds(value: string | null | undefined): string[] {
-  if (!value) return []
-  try {
-    const parsed = JSON.parse(value)
-    const ids: any[] = parsed?.linkedPulseIds || []
-    return ids.map((lp: any) => String(lp.linkedPulseId)).filter(Boolean)
-  } catch {
-    return []
+function parseLinkedPulseIds(col: any): string[] {
+  if (!col) return []
+
+  // Preferred: inline fragment exposes linked_item_ids directly as a string array
+  if (Array.isArray(col.linked_item_ids) && col.linked_item_ids.length > 0) {
+    return col.linked_item_ids.map(String)
   }
+
+  // Fallback: parse the legacy JSON value string
+  if (col.value) {
+    try {
+      const parsed = JSON.parse(col.value)
+      const ids: any[] = parsed?.linkedPulseIds || []
+      return ids.map((lp: any) => String(lp.linkedPulseId)).filter(Boolean)
+    } catch {}
+  }
+
+  return []
 }
 
 export async function GET(request: NextRequest) {
@@ -80,7 +91,14 @@ export async function GET(request: NextRequest) {
           items {
             id
             name
-            column_values { id text value }
+            column_values {
+              id
+              text
+              value
+              ... on BoardRelationValue {
+                linked_item_ids
+              }
+            }
           }
         }
       }
@@ -123,11 +141,10 @@ export async function GET(request: NextRequest) {
     console.log(
       `[my-booked-brides] ${artist.email} (${artist.type}): ${allBooked.length} booked items from Monday`
     )
-
     // Filter to items where this artist is the linked artist in their column
     const myItems = allBooked.filter((item) => {
       const col = item.column_values.find((c: any) => c.id === myColumnId)
-      const linkedIds = parseLinkedPulseIds(col?.value)
+      const linkedIds = parseLinkedPulseIds(col)
       return linkedIds.includes(String(artist.mondayItemId))
     })
 
@@ -137,7 +154,7 @@ export async function GET(request: NextRequest) {
     const companionMondayIds = myItems
       .flatMap((item) => {
         const col = item.column_values.find((c: any) => c.id === companionColumnId)
-        return parseLinkedPulseIds(col?.value)
+        return parseLinkedPulseIds(col)
       })
       .filter(Boolean)
 
@@ -174,7 +191,7 @@ export async function GET(request: NextRequest) {
 
       // Companion artist (first linked ID wins)
       const companionCol = getCol(companionColumnId)
-      const companionIds = parseLinkedPulseIds(companionCol?.value)
+      const companionIds = parseLinkedPulseIds(companionCol)
       const companion = companionIds.length > 0 ? companionByMondayId.get(companionIds[0]) : null
 
       return {
