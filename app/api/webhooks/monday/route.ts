@@ -1014,7 +1014,9 @@ async function getChosenArtistFromClient(
 
     console.log(`[getChosenArtist] Fetching chosen artist for client ${mondayItemId}, column ${chosenArtistColumnId}`)
 
-    // Query Monday.com to get the chosen artist column value
+    // Query Monday.com to get the chosen artist column value.
+    // connect_boards columns do NOT populate `value` in the standard JSON field —
+    // linked item IDs are only exposed via the BoardRelationValue inline fragment.
     const query = `
       query GetChosenArtist($itemId: ID!) {
         items(ids: [$itemId]) {
@@ -1023,6 +1025,9 @@ async function getChosenArtistFromClient(
             id
             text
             value
+            ... on BoardRelationValue {
+              linked_item_ids
+            }
           }
         }
       }
@@ -1052,16 +1057,24 @@ async function getChosenArtistFromClient(
       value: chosenArtistColumn.value
     })
 
-    // Parse the connect_boards column value to get the linked artist item ID
-    // Monday.com connect_boards columns return JSON with linked_pulse_ids
+    // Primary path: BoardRelationValue inline fragment (connect_boards columns)
+    // Monday v2 does not populate `value` for these columns — linked IDs come
+    // through the inline fragment only.
+    if (chosenArtistColumn.linked_item_ids && chosenArtistColumn.linked_item_ids.length > 0) {
+      const artistId = String(chosenArtistColumn.linked_item_ids[0])
+      console.log(`[getChosenArtist] Found chosen artist ID (BoardRelationValue): ${artistId}`)
+      return artistId
+    }
+
+    // Fallback: parse legacy `value` JSON (kept for safety, rarely populated)
     if (chosenArtistColumn.value) {
       try {
         const parsed = JSON.parse(chosenArtistColumn.value)
         const linkedIds = parsed?.linkedPulseIds || parsed?.linked_pulse_ids || []
-        
+
         if (linkedIds.length > 0) {
           const artistId = String(linkedIds[0]?.linkedPulseId || linkedIds[0])
-          console.log(`[getChosenArtist] Found chosen artist ID: ${artistId}`)
+          console.log(`[getChosenArtist] Found chosen artist ID (value JSON fallback): ${artistId}`)
           return artistId
         }
       } catch (e) {
