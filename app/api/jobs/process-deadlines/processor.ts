@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import { setEmailAutomation } from '@/lib/monday'
 import { logAudit } from '@/lib/audit'
 import { createBatchAndProposals } from '@/lib/services/proposals'
+import { sendNewProposalNotification } from '@/lib/push'
 
 export interface ProcessDeadlinesResult {
   processed: number
@@ -109,6 +110,38 @@ async function handleSingleBatchTimeout(batch: any, clientService: any, result: 
       'BROADCAST',
       'CHOSEN_NO' as any
     )
+
+    // Send push notifications to all artists in the new broadcast batch.
+    // Without this, the BROADCAST batch is silently created in the DB but no
+    // artist gets notified — they'd only see the proposal if they happen to
+    // open the app. We mirror the artist selection used inside
+    // `createBatchAndProposals` (all active artists of the service type).
+    try {
+      const broadcastArtists = await prisma.artist.findMany({
+        where: {
+          active: true,
+          type: clientService.service,
+        },
+        select: { id: true },
+      })
+
+      if (broadcastArtists.length > 0) {
+        await sendNewProposalNotification(
+          broadcastArtists.map(a => a.id),
+          clientService.bridesName,
+          clientService.service,
+          clientService.weddingDate,
+        )
+        console.log(`Batch ${batch.id}: Sent push notifications to ${broadcastArtists.length} ${clientService.service} artists for new BROADCAST batch ${broadcastResult.batchId}`)
+      } else {
+        console.warn(`Batch ${batch.id}: No active ${clientService.service} artists to notify for new BROADCAST batch ${broadcastResult.batchId}`)
+      }
+    } catch (pushError) {
+      // Don't fail the batch escalation if push delivery fails — the DB rows
+      // are already created and artists will see the proposal next time they
+      // open the app. Just log so we can investigate.
+      console.error(`Batch ${batch.id}: Failed to send push notifications for BROADCAST escalation:`, pushError)
+    }
 
     // Log audit event
     await logAudit({
