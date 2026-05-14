@@ -1081,18 +1081,29 @@ export async function respondToProposal({
             await new Promise(res => setTimeout(res, 1000))
           }
           console.log('[brides:YES] polls lookup result', { pollsItemId })
-          if (pollsItemId) {
-            const email = normEmail(actor.email)
-            const colId = actor.type === 'MUA' ? MUA_POLL_COLUMN_BY_EMAIL[email] : HS_POLL_COLUMN_BY_EMAIL[email]
-            console.log('[brides:YES] column mapping', { email, colId })
+          const email = normEmail(actor.email)
+          const colId = actor.type === 'MUA' ? MUA_POLL_COLUMN_BY_EMAIL[email] : HS_POLL_COLUMN_BY_EMAIL[email]
+          const displayName = (actor.type === 'MUA' ? MUA_NAME_BY_EMAIL[email] : HS_NAME_BY_EMAIL[email]) || actor.user?.username || actor.email
+          const body = `${displayName} pode`
+
+          if (!pollsItemId) {
+            console.warn('[brides:YES] Polls item not found for client', mondayId)
+            // Still add update to Clients item — mirrors the NO flow's fallback
+            await addItemUpdate(mondayId, body)
+            console.log('[brides:YES] wrote Clients update only (no Polls item)')
+          } else {
+            // If mapping exists, set boolean TRUE; either way, add updates to both items
             if (colId) {
+              console.log('[brides:YES] setting Polls boolean TRUE', { colId, email })
               await setPollsBoolean(pollsItemId, colId, true)
-              console.log('[brides:YES] set Polls TRUE done')
             } else {
               console.warn('[brides:YES] No Polls column mapping for', actor.email)
             }
-          } else {
-            console.warn('[brides:YES] Polls item not found for client', mondayId)
+            await Promise.all([
+              addItemUpdate(pollsItemId, body),
+              addItemUpdate(mondayId, body),
+            ])
+            console.log('[brides:YES] wrote updates to Polls and Clients', { body })
           }
         } catch (e) {
           console.error('[brides:YES] Failed to update Polls board (non-critical):', e)
