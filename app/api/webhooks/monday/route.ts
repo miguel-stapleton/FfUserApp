@@ -287,7 +287,24 @@ async function processCreatePulseForService(
   }
 
   if (!chosenEmail) {
-    console.warn(`[monday:create_pulse:${serviceType}] Could not resolve chosen artist from updates after retries`, { itemId })
+    // WhatsApp phrase not found — fall back to the connect_boards column.
+    // This covers form submissions where the client linked artists directly
+    // but the triade hasn't written the WhatsApp update yet.
+    console.log(`[monday:create_pulse:${serviceType}] WhatsApp phrase not found, trying connect_boards column fallback`)
+    const fallbackMondayId = await getChosenArtistFromClient(itemId, serviceType)
+    if (fallbackMondayId) {
+      const fallbackArtist = await prisma.artist.findFirst({
+        where: { mondayItemId: fallbackMondayId, type: serviceType, active: true },
+      })
+      if (fallbackArtist) {
+        console.log(`[monday:create_pulse:${serviceType}] Resolved artist via connect_boards fallback`, { email: fallbackArtist.email })
+        chosenEmail = fallbackArtist.email
+      }
+    }
+  }
+
+  if (!chosenEmail) {
+    console.warn(`[monday:create_pulse:${serviceType}] Could not resolve chosen artist from updates or connect_boards`, { itemId })
     return
   }
 
