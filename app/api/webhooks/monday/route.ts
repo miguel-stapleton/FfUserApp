@@ -322,11 +322,15 @@ async function processCreatePulseForService(
     return
   }
 
-  const { batchId, proposalCount } = await createBatchAndProposals(
+  // Use createBatchForSpecificArtists so the Proposal row is written for the
+  // chosen artist (`artist.id`). createBatchAndProposals('SINGLE', ...) ignores
+  // the chosen artist and always picks the first FOUNDER by createdAt, which
+  // caused the wrong artist (typically Miguel) to receive the proposal.
+  const { batchId, proposalCount } = await createBatchForSpecificArtists(
     clientServiceId,
     'SINGLE',
     'CHOSEN_NO',
-    1
+    [artist.id]
   )
 
   await logAudit({
@@ -959,12 +963,16 @@ async function handleTravellingFeeStatus(
     return
   }
 
-  // Create SINGLE batch for the chosen artist
-  const { batchId, proposalCount } = await createBatchAndProposals(
+  // Create SINGLE batch for the chosen artist.
+  // Use createBatchForSpecificArtists so the Proposal row is written for the
+  // chosen artist (`artist.id`). createBatchAndProposals('SINGLE', ...) ignores
+  // the chosen artist and always picks the first FOUNDER by createdAt, which
+  // caused the wrong artist (typically Miguel) to receive the proposal.
+  const { batchId, proposalCount } = await createBatchForSpecificArtists(
     clientServiceId,
     'SINGLE',
     'CHOSEN_NO',
-    1 // Target count of 1 for single mode
+    [artist.id]
   )
 
   // Log batch creation
