@@ -308,8 +308,8 @@ export async function createBatchAndProposals(
       throw new Error('Client service not found')
     }
 
-    // Calculate deadline (24 hours from now)
-    const deadlineAt = new Date(Date.now() + 24 * 60 * 60 * 1000)
+    // Calculate deadline (72 hours from now)
+    const deadlineAt = new Date(Date.now() + 72 * 60 * 60 * 1000)
 
     // Create the proposal batch
     const batch = await tx.proposalBatch.create({
@@ -389,8 +389,8 @@ export async function createBatchForSpecificArtists(
       throw new Error('Client service not found')
     }
 
-    // Calculate deadline (24 hours from now)
-    const deadlineAt = new Date(Date.now() + 24 * 60 * 60 * 1000)
+    // Calculate deadline (72 hours from now)
+    const deadlineAt = new Date(Date.now() + 72 * 60 * 60 * 1000)
 
     // Create the proposal batch
     const batch = await tx.proposalBatch.create({
@@ -452,7 +452,7 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
 
     // ── 1. Bride proposals from DB ────────────────────────────────────────────
     // Single indexed query replaces the previous full Monday board pagination.
-    // We also guard on deadlineAt > now: any OPEN batch whose 24-hour window has
+    // We also guard on deadlineAt > now: any OPEN batch whose 72-hour window has
     // already passed is stale (the cron should have closed it, but may not have
     // for older records). Only show proposals that are still within their active
     // window — this matches the intended business logic.
@@ -708,7 +708,7 @@ export async function respondToProposal({
           clientServiceId,
           mode: 'BROADCAST' as any,
           startReason: 'UNDECIDED' as any,
-          deadlineAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          deadlineAt: new Date(Date.now() + 72 * 60 * 60 * 1000),
           state: 'OPEN' as any,
         },
       })

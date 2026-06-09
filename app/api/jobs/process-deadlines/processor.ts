@@ -25,7 +25,7 @@ export async function runProcessDeadlines(): Promise<ProcessDeadlinesResult> {
   }
 
   try {
-    // Find all batches that have expired (24h deadline passed)
+    // Find all batches that have expired (72h deadline passed)
     const now = new Date()
     const expiredBatches = await prisma.proposalBatch.findMany({
       where: {
@@ -75,7 +75,7 @@ async function processBatch(batch: any, result: ProcessDeadlinesResult) {
     const hasAnyResponse = proposals.some((p: any) => p.response !== null)
     
     if (!hasAnyResponse) {
-      // No response within 24h for SINGLE batch - treat as NO and start BROADCAST
+      // No response within 72h for SINGLE batch - treat as NO and start BROADCAST
       await handleSingleBatchTimeout(batch, clientService, result)
       return
     }
@@ -153,7 +153,7 @@ async function handleSingleBatchTimeout(batch: any, clientService: any, result: 
         newBroadcastBatchId: broadcastResult.batchId,
         clientServiceId: clientService.id,
         mondayClientItemId: clientService.mondayClientItemId,
-        reason: 'No response within 24h for SINGLE batch',
+        reason: 'No response within 72h for SINGLE batch',
         newProposalCount: broadcastResult.proposalCount,
         processedAt: new Date().toISOString(),
       },

@@ -814,7 +814,7 @@ async function handleUndecidedStatus(
     return
   }
 
-  // Create BROADCAST batch with 24h deadline
+  // Create BROADCAST batch with 72h deadline
   const { batchId, proposalCount } = await createBatchAndProposals(
     clientServiceId,
     'BROADCAST',
@@ -832,7 +832,7 @@ async function handleUndecidedStatus(
       mode: 'BROADCAST',
       serviceType,
       proposalCount,
-      deadline: new Date(timestamp.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+      deadline: new Date(timestamp.getTime() + 72 * 60 * 60 * 1000).toISOString(),
       timestamp: timestamp.toISOString(),
     },
   })

@@ -239,7 +239,7 @@ Cron Job (5min) → Check Expired Batches → Send Email Automation → Update S
 ### 4. Business Rules
 - **MUA OR HS**: Artists can only be one type (enforced at signup)
 - **No Distance Limits**: All active artists receive BROADCAST proposals
-- **24h Timeout**: SINGLE batches without response trigger BROADCAST
+- **72h Timeout**: SINGLE batches without response trigger BROADCAST
 - **Proposal Hiding**: Only responding artist sees proposal as hidden
 
 ## 🛠 Development Tools
