@@ -7,6 +7,7 @@ import { logAudit } from '@/lib/audit'
 import { sendNewProposalNotification, sendPushToArtistsByType } from '@/lib/push'
 import { getClientFromMonday, getItemUpdates, getArtistByMondayId } from '@/lib/monday'
 import { ServiceType as PrismaServiceType } from '@prisma/client'
+import { sweepOrphanedClientServices } from '@/lib/services/sweep-orphans'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -607,6 +608,20 @@ export async function POST(request: NextRequest) {
         oldStatus,
         timestamp
       )
+    }
+
+    // Opportunistic self-heal: at the end of every webhook, sweep for
+    // ClientService rows created in the last hour that never got a batch
+    // attached (silent failure case — e.g. Kim McDonald on 2026-06-29).
+    // This is awaited so any heals complete before the function returns,
+    // but it's wrapped so a sweep failure can never break the webhook.
+    try {
+      const sweep = await sweepOrphanedClientServices({ windowMinutes: 60 })
+      if (sweep.healed > 0 || sweep.errors.length > 0) {
+        console.log('[monday:webhook:sweep]', sweep)
+      }
+    } catch (sweepErr) {
+      console.error('[monday:webhook:sweep] failed:', sweepErr)
     }
 
     return NextResponse.json({ success: true })
