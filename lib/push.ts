@@ -13,22 +13,36 @@ interface NotificationDeliveryLog {
 }
 
 /**
- * Log notification delivery attempts for debugging and monitoring
+ * Log notification delivery attempts for debugging and monitoring.
+ *
+ * Always writes a console line (so Vercel function logs / local runs have
+ * visibility even if the DB write is unavailable). The DB write is
+ * best-effort: it silently no-ops if the Prisma client doesn't yet know
+ * about the NotificationDeliveryLog model (client not regenerated after a
+ * schema change) or if the underlying table hasn't been created in the
+ * database (`prisma db push` not yet run). A DB write failure never
+ * affects the caller.
  */
 async function logNotificationDelivery(log: NotificationDeliveryLog): Promise<void> {
+  console.log('[push:delivery_log]', {
+    userId: log.userId,
+    artistId: log.artistId,
+    clientName: log.clientName,
+    status: log.status,
+    subscriptionCount: log.subscriptionCount,
+    failureReason: log.failureReason,
+    timestamp: log.timestamp.toISOString(),
+  })
+
+  // Guard: the Prisma client only exposes `notificationDeliveryLog` if the
+  // model is in the current schema AND the client has been regenerated.
+  // Accessing `.create` on an undefined property throws synchronously and
+  // would not be caught by a promise `.catch()`, so we check first.
+  const client = prisma as any
+  if (!client?.notificationDeliveryLog?.create) return
+
   try {
-    console.log('[push:delivery_log]', {
-      userId: log.userId,
-      artistId: log.artistId,
-      clientName: log.clientName,
-      status: log.status,
-      subscriptionCount: log.subscriptionCount,
-      failureReason: log.failureReason,
-      timestamp: log.timestamp.toISOString(),
-    })
-    
-    // Store in database for historical tracking
-    await prisma.notificationDeliveryLog.create({
+    await client.notificationDeliveryLog.create({
       data: {
         userId: log.userId,
         artistId: log.artistId,
@@ -39,12 +53,11 @@ async function logNotificationDelivery(log: NotificationDeliveryLog): Promise<vo
         failureReason: log.failureReason,
         timestamp: log.timestamp,
       },
-    }).catch(err => {
-      // Don't fail the notification if logging fails
-      console.warn('[push:delivery_log] Failed to store log in database:', err)
     })
-  } catch (error) {
-    console.error('[push:delivery_log] Error logging notification:', error)
+  } catch (err) {
+    // DB write failed — most likely the table doesn't exist in this env.
+    // Log at warn level so this doesn't look like a hard error.
+    console.warn('[push:delivery_log] DB write skipped:', err instanceof Error ? err.message : err)
   }
 }
 
