@@ -47,12 +47,12 @@ async function main() {
     include: { clientService: true },
   })
   const respondedClientIds = new Set(
-    respondedAll.map(p => p.clientService.mondayClientItemId)
+    respondedAll.map(p => p.clientService.clientItemId)
   )
 
   const seenClientIds = new Set<string>()
   for (const p of openProposals) {
-    const clientId = p.clientService.mondayClientItemId
+    const clientId = p.clientService.clientItemId
     const respondedBlock = respondedClientIds.has(clientId)
     const dedupeBlock = !respondedBlock && seenClientIds.has(clientId)
     let visibility: string
@@ -65,7 +65,7 @@ async function main() {
 
     console.log(`
   bridesName        = "${p.clientService.bridesName}"
-    mondayClientItemId = ${clientId}
+    clientItemId = ${clientId}
     service            = ${p.clientService.service}
     weddingDate        = ${p.clientService.weddingDate.toISOString().slice(0, 10)}
     proposalId         = ${p.id}
@@ -81,8 +81,8 @@ async function main() {
   console.log(`\n=== Prior responses Eric has given that block any of the above ===`)
   const blockingMondayIds = new Set<string>()
   for (const p of openProposals) {
-    if (respondedClientIds.has(p.clientService.mondayClientItemId)) {
-      blockingMondayIds.add(p.clientService.mondayClientItemId)
+    if (respondedClientIds.has(p.clientService.clientItemId)) {
+      blockingMondayIds.add(p.clientService.clientItemId)
     }
   }
   if (blockingMondayIds.size === 0) {
@@ -92,14 +92,14 @@ async function main() {
       where: {
         artistId: user.artist.id,
         response: { not: null },
-        clientService: { mondayClientItemId: { in: Array.from(blockingMondayIds) } },
+        clientService: { clientItemId: { in: Array.from(blockingMondayIds) } },
       },
       include: { clientService: true, proposalBatch: true },
       orderBy: { respondedAt: 'desc' },
     })
     for (const b of blockers) {
       console.log(`
-  bridesName=${b.clientService.bridesName}  mondayClientItemId=${b.clientService.mondayClientItemId}
+  bridesName=${b.clientService.bridesName}  clientItemId=${b.clientService.clientItemId}
     proposalId=${b.id}  response=${b.response}  respondedAt=${b.respondedAt?.toISOString()}
     batchState=${b.proposalBatch.state}  batchCreatedAt=${b.proposalBatch.createdAt.toISOString()}`)
     }
@@ -114,7 +114,7 @@ async function main() {
   })
   for (const cs of recent) {
     console.log(
-      `  ${cs.createdAt.toISOString().slice(0, 19)}  bridesName="${cs.bridesName}"  monday=${cs.mondayClientItemId}  weddingDate=${cs.weddingDate.toISOString().slice(0, 10)}`
+      `  ${cs.createdAt.toISOString().slice(0, 19)}  bridesName="${cs.bridesName}"  monday=${cs.clientItemId}  weddingDate=${cs.weddingDate.toISOString().slice(0, 10)}`
     )
   }
 

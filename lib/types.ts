@@ -31,7 +31,7 @@ export interface Artist {
   email: string
   type: ArtistType
   tier: Tier
-  mondayItemId: string
+  clientItemId: string
   active: boolean
   createdAt: Date
   updatedAt: Date
@@ -40,7 +40,7 @@ export interface Artist {
 
 export interface ClientService {
   id: string
-  mondayClientItemId: string
+  clientItemId: string
   serviceType: ServiceType
   clientName: string
   clientEmail: string
@@ -124,7 +124,7 @@ export interface ArtistProposalCard {
 }
 
 export interface BackofficeRow {
-  mondayClientItemId: string
+  clientItemId: string
   clientName: string
   eventDate: string
   beautyVenue?: string
@@ -169,7 +169,7 @@ export interface BackofficeInfo {
 }
 
 export interface BackofficeClientInfo {
-  mondayClientItemId: string
+  clientItemId: string
   clientName: string
   eventDate: string
   beautyVenue?: string
@@ -207,7 +207,7 @@ export interface RespondToProposalRequest {
 }
 
 export interface UpsertClientServiceRequest {
-  mondayClientItemId: string
+  clientItemId: string
   serviceType: ServiceType
   clientName: string
   clientEmail: string
@@ -230,7 +230,7 @@ export interface MondayArtist {
 }
 
 export interface MondayClient {
-  mondayItemId: string
+  clientItemId: string
   name: string
   email: string
   phone?: string

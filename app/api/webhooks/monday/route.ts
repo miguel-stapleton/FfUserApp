@@ -295,7 +295,7 @@ async function processCreatePulseForService(
     const fallbackMondayId = await getChosenArtistFromClient(itemId, serviceType)
     if (fallbackMondayId) {
       const fallbackArtist = await prisma.artist.findFirst({
-        where: { mondayItemId: fallbackMondayId, type: serviceType, active: true },
+        where: { clientItemId: fallbackMondayId, type: serviceType, active: true },
       })
       if (fallbackArtist) {
         console.log(`[monday:create_pulse:${serviceType}] Resolved artist via connect_boards fallback`, { email: fallbackArtist.email })
@@ -633,7 +633,7 @@ export async function POST(request: NextRequest) {
 }
 
 async function handleStatusChange(
-  mondayItemId: string,
+  clientItemId: string,
   serviceType: 'MUA' | 'HS',
   newStatus: string,
   previousStatus: string,
@@ -645,21 +645,21 @@ async function handleStatusChange(
 
     // Handle "undecided – inquire availabilities" (normalize dashes/spaces)
     if (newStatus === TARGET_UNDECIDED) {
-      await handleUndecidedStatus(mondayItemId, serviceType, serviceTypeEnum, timestamp)
+      await handleUndecidedStatus(clientItemId, serviceType, serviceTypeEnum, timestamp)
     }
 
     // Handle "inquire second option" (MUA) and HS variant
     if (serviceType === 'MUA' && newStatus === TARGET_SECOND_OPTION_M) {
-      await handleSecondOptionStatus(mondayItemId, 'MUA', serviceTypeEnum, timestamp)
+      await handleSecondOptionStatus(clientItemId, 'MUA', serviceTypeEnum, timestamp)
     }
     if (serviceType === 'HS' && newStatus === TARGET_SECOND_OPTION_H) {
-      await handleSecondOptionStatus(mondayItemId, 'HS', serviceTypeEnum, timestamp)
+      await handleSecondOptionStatus(clientItemId, 'HS', serviceTypeEnum, timestamp)
     }
 
     // Handle "Travelling fee + inquire the artist" (MUA wording) and
     // "Travelling fee + inquire artist" (HS wording, no "the").
     if (isTravellingFor(serviceType, newStatus)) {
-      await handleTravellingFeeStatus(mondayItemId, serviceType, serviceTypeEnum, timestamp)
+      await handleTravellingFeeStatus(clientItemId, serviceType, serviceTypeEnum, timestamp)
     }
 
   } catch (error) {
@@ -671,12 +671,12 @@ async function handleStatusChange(
 
 // Handle "second option" status: broadcast to all except the exception account referenced by the whatsapp phrase
 async function handleSecondOptionStatus(
-  mondayItemId: string,
+  clientItemId: string,
   serviceType: 'MUA' | 'HS',
   serviceTypeEnum: PrismaServiceType,
   timestamp: Date
 ) {
-  console.log('[monday:webhook] Handling SECOND_OPTION for', { mondayItemId, serviceType })
+  console.log('[monday:webhook] Handling SECOND_OPTION for', { clientItemId, serviceType })
 
   // Resolve exception email from updates
   let attempts = 0
@@ -686,7 +686,7 @@ async function handleSecondOptionStatus(
 
   while (attempts < 3 && !exceptionEmail) {
     attempts++
-    const updates = await getItemUpdates(mondayItemId)
+    const updates = await getItemUpdates(clientItemId)
     const combinedTexts = updates
       .map(u => normalizeText(u.text_body || u.body || ''))
       .filter(Boolean)
@@ -717,7 +717,7 @@ async function handleSecondOptionStatus(
   // Ensure ClientService exists; if it fails, send a broadcast push as a fallback
   let clientServiceId: string
   try {
-    clientServiceId = await upsertClientServiceFromMonday(mondayItemId, serviceTypeEnum as any)
+    clientServiceId = await upsertClientServiceFromMonday(clientItemId, serviceTypeEnum as any)
   } catch (e) {
     console.warn('[monday:webhook] upsertClientServiceFromMonday failed (second option), sending broadcast fallback', e)
     await sendPushToArtistsByType(serviceType, {
@@ -756,7 +756,7 @@ async function handleSecondOptionStatus(
   })
 
   // Push to filtered artists
-  const clientData = await getClientFromMonday(mondayItemId)
+  const clientData = await getClientFromMonday(clientItemId)
   await sendNewProposalNotification(
     filtered.map(a => a.id),
     clientData?.name || 'New Client',
@@ -768,18 +768,18 @@ async function handleSecondOptionStatus(
 }
 
 async function handleUndecidedStatus(
-  mondayItemId: string,
+  clientItemId: string,
   serviceType: 'MUA' | 'HS',
   serviceTypeEnum: PrismaServiceType,
   timestamp: Date
 ) {
-  console.log('[monday:webhook] Handling UNDECIDED for', { mondayItemId, serviceType })
+  console.log('[monday:webhook] Handling UNDECIDED for', { clientItemId, serviceType })
 
   // Try to upsert client service; if it fails, send a broadcast push as a fallback
   let clientServiceId: string
   try {
     clientServiceId = await upsertClientServiceFromMonday(
-      mondayItemId,
+      clientItemId,
       serviceTypeEnum as any
     )
   } catch (e) {
@@ -805,7 +805,7 @@ async function handleUndecidedStatus(
     entityType: 'CLIENT_SERVICE',
     entityId: clientServiceId,
     details: {
-      mondayItemId,
+      clientItemId,
       serviceType,
       timestamp: timestamp.toISOString(),
     },
@@ -853,7 +853,7 @@ async function handleUndecidedStatus(
   })
 
   // Get client info for push notification
-  const clientData = await getClientFromMonday(mondayItemId)
+  const clientData = await getClientFromMonday(clientItemId)
   if (clientData) {
     // Send push notifications to all artists
     await sendNewProposalNotification(
@@ -880,12 +880,12 @@ async function handleUndecidedStatus(
 }
 
 async function handleTravellingFeeStatus(
-  mondayItemId: string,
+  clientItemId: string,
   serviceType: 'MUA' | 'HS',
   serviceTypeEnum: PrismaServiceType,
   timestamp: Date
 ) {
-  console.log('[monday:webhook] Handling TRAVELLING for', { mondayItemId, serviceType })
+  console.log('[monday:webhook] Handling TRAVELLING for', { clientItemId, serviceType })
 
   // Get the chosen artist from Monday.com
   // Apply placeholder-aware fallback so .env containing the example values from
@@ -904,17 +904,17 @@ async function handleTravellingFeeStatus(
   }
 
   // Get client data to find the chosen artist
-  const clientData = await getClientFromMonday(mondayItemId)
+  const clientData = await getClientFromMonday(clientItemId)
   if (!clientData) {
-    console.error(`Client not found in Monday.com: ${mondayItemId}`)
+    console.error(`Client not found in Monday.com: ${clientItemId}`)
     return
   }
 
   // Get the chosen artist Monday item ID from the client record
-  const chosenArtistMondayId = await getChosenArtistFromClient(mondayItemId, serviceType)
+  const chosenArtistMondayId = await getChosenArtistFromClient(clientItemId, serviceType)
   
   if (!chosenArtistMondayId) {
-    console.log(`[monday:webhook:travelling] No chosen artist found for ${serviceType} client ${mondayItemId}`)
+    console.log(`[monday:webhook:travelling] No chosen artist found for ${serviceType} client ${clientItemId}`)
     return
   }
 
@@ -926,7 +926,7 @@ async function handleTravellingFeeStatus(
   // Find the artist in our database
   const artist = await prisma.artist.findFirst({
     where: {
-      mondayItemId: chosenArtistMondayId,
+      clientItemId: chosenArtistMondayId,
       type: serviceType,
       active: true,
     },
@@ -936,13 +936,13 @@ async function handleTravellingFeeStatus(
     console.error(`[monday:webhook:travelling] Chosen artist not found in database`, {
       chosenArtistMondayId,
       serviceType,
-      note: 'Artist may not be synced to database or mondayItemId mismatch'
+      note: 'Artist may not be synced to database or clientItemId mismatch'
     })
     
     // Try to find all artists to help debug
     const allArtists = await prisma.artist.findMany({
       where: { type: serviceType, active: true },
-      select: { id: true, email: true, mondayItemId: true }
+      select: { id: true, email: true, clientItemId: true }
     })
     console.log(`[monday:webhook:travelling] Available ${serviceType} artists in database:`, allArtists)
     return
@@ -951,14 +951,14 @@ async function handleTravellingFeeStatus(
   console.log(`[monday:webhook:travelling] Found artist`, {
     artistId: artist.id,
     email: artist.email,
-    mondayItemId: artist.mondayItemId
+    clientItemId: artist.clientItemId
   })
 
   // Ensure ClientService exists; if it fails, send fallback push and return
   let clientServiceId: string
   try {
     clientServiceId = await upsertClientServiceFromMonday(
-      mondayItemId,
+      clientItemId,
       serviceTypeEnum as any
     )
   } catch (e) {
@@ -1035,7 +1035,7 @@ async function handleTravellingFeeStatus(
 
 // Helper function to get chosen artist from Monday.com client record
 async function getChosenArtistFromClient(
-  mondayItemId: string,
+  clientItemId: string,
   serviceType: 'MUA' | 'HS'
 ): Promise<string | null> {
   try {
@@ -1052,7 +1052,7 @@ async function getChosenArtistFromClient(
       return null
     }
 
-    console.log(`[getChosenArtist] Fetching chosen artist for client ${mondayItemId}, column ${chosenArtistColumnId}`)
+    console.log(`[getChosenArtist] Fetching chosen artist for client ${clientItemId}, column ${chosenArtistColumnId}`)
 
     // Query Monday.com to get the chosen artist column value.
     // connect_boards columns do NOT populate `value` in the standard JSON field —
@@ -1075,19 +1075,19 @@ async function getChosenArtistFromClient(
 
     const response = await axios.post(
       'https://api.monday.com/v2',
-      { query, variables: { itemId: mondayItemId } },
+      { query, variables: { itemId: clientItemId } },
       { headers: { Authorization: process.env.MONDAY_API_TOKEN || '', 'Content-Type': 'application/json' } }
     )
 
     const item = response.data?.data?.items?.[0]
     if (!item) {
-      console.log(`[getChosenArtist] Item ${mondayItemId} not found`)
+      console.log(`[getChosenArtist] Item ${clientItemId} not found`)
       return null
     }
 
     const chosenArtistColumn = item.column_values?.[0]
     if (!chosenArtistColumn) {
-      console.log(`[getChosenArtist] Column ${chosenArtistColumnId} not found on item ${mondayItemId}`)
+      console.log(`[getChosenArtist] Column ${chosenArtistColumnId} not found on item ${clientItemId}`)
       return null
     }
 
@@ -1122,7 +1122,7 @@ async function getChosenArtistFromClient(
       }
     }
 
-    console.log(`[getChosenArtist] No chosen artist found for ${serviceType} client ${mondayItemId}`)
+    console.log(`[getChosenArtist] No chosen artist found for ${serviceType} client ${clientItemId}`)
     return null
   } catch (error) {
     console.error('[getChosenArtist] Error getting chosen artist from Monday.com:', error)

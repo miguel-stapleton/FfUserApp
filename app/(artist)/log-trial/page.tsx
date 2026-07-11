@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 
 interface BookedClient {
-  mondayItemId: string
+  clientItemId: string
   brideName: string
 }
 
@@ -26,7 +26,7 @@ export default function LogTrialPage() {
   const [success, setSuccess] = useState<string | null>(null)
 
   // Derive the selected client's current trial date (if any)
-  const selectedClient = bookedClients.find(c => c.mondayItemId === selectedClientId) as (BookedClient & { trialDate?: string }) | undefined
+  const selectedClient = bookedClients.find(c => c.clientItemId === selectedClientId) as (BookedClient & { trialDate?: string }) | undefined
 
   useEffect(() => {
     fetchBookedClients()
@@ -158,7 +158,7 @@ export default function LogTrialPage() {
                     >
                       <option value="">Select a bride</option>
                       {bookedClients.map((client) => (
-                        <option key={client.mondayItemId} value={client.mondayItemId}>
+                        <option key={client.clientItemId} value={client.clientItemId}>
                           {client.brideName}
                         </option>
                       ))}

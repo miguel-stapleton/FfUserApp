@@ -51,12 +51,12 @@ export async function GET(request: NextRequest) {
     include: { clientService: true },
   })
   const respondedClientIds = new Set(
-    respondedAll.map(p => p.clientService.mondayClientItemId)
+    respondedAll.map(p => p.clientService.clientItemId)
   )
 
   const seenClientIds = new Set<string>()
   const openProposalsAnnotated = openProposals.map(p => {
-    const clientId = p.clientService.mondayClientItemId
+    const clientId = p.clientService.clientItemId
     const respondedBlock = respondedClientIds.has(clientId)
     const dedupeBlock = !respondedBlock && seenClientIds.has(clientId)
     let visibility: string
@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
     }
     return {
       bridesName: p.clientService.bridesName,
-      mondayClientItemId: clientId,
+      clientItemId: clientId,
       service: p.clientService.service,
       weddingDate: p.clientService.weddingDate.toISOString().slice(0, 10),
       proposalId: p.id,
@@ -111,7 +111,7 @@ export async function GET(request: NextRequest) {
       batchCreatedAt: p.proposalBatch.createdAt.toISOString(),
       clientServiceId: p.clientServiceId,
       bridesName: p.clientService.bridesName,
-      mondayClientItemId: p.clientService.mondayClientItemId,
+      clientItemId: p.clientService.clientItemId,
     }))
   }
 
@@ -123,7 +123,7 @@ export async function GET(request: NextRequest) {
     select: {
       id: true,
       bridesName: true,
-      mondayClientItemId: true,
+      clientItemId: true,
       weddingDate: true,
       createdAt: true,
     },
@@ -154,7 +154,7 @@ export async function GET(request: NextRequest) {
       services: roseminaServices.map(s => ({
         id: s.id,
         bridesName: s.bridesName,
-        mondayClientItemId: s.mondayClientItemId,
+        clientItemId: s.clientItemId,
         weddingDate: s.weddingDate.toISOString().slice(0, 10),
         createdAt: s.createdAt.toISOString(),
       })),
@@ -162,7 +162,7 @@ export async function GET(request: NextRequest) {
     },
     recentHsClientServices: recentHs.map(cs => ({
       bridesName: cs.bridesName,
-      mondayClientItemId: cs.mondayClientItemId,
+      clientItemId: cs.clientItemId,
       weddingDate: cs.weddingDate.toISOString().slice(0, 10),
       createdAt: cs.createdAt.toISOString(),
     })),
@@ -174,7 +174,7 @@ export async function GET(request: NextRequest) {
       deadlineAt: b.deadlineAt.toISOString(),
       createdAt: b.createdAt.toISOString(),
       bridesName: b.clientService.bridesName,
-      mondayClientItemId: b.clientService.mondayClientItemId,
+      clientItemId: b.clientService.clientItemId,
     })),
   })
 }

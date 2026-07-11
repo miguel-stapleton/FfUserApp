@@ -86,7 +86,7 @@ async function main() {
         id: true,
         email: true,
         type: true,
-        mondayItemId: true,
+        clientItemId: true,
       },
     })
 
@@ -97,7 +97,7 @@ async function main() {
     for (const artist of artists) {
       console.log(`Checking ${artist.email}...`)
       console.log(`  Current DB type: ${artist.type}`)
-      console.log(`  Current DB Monday ID: ${artist.mondayItemId}`)
+      console.log(`  Current DB Monday ID: ${artist.clientItemId}`)
 
       const mondayData = await findArtistInMonday(artist.email)
 
@@ -110,13 +110,13 @@ async function main() {
       console.log(`  Monday item ID: ${mondayData.itemId}`)
       console.log(`  Monday name: ${mondayData.name}`)
 
-      if (artist.type !== mondayData.type || artist.mondayItemId !== mondayData.itemId) {
+      if (artist.type !== mondayData.type || artist.clientItemId !== mondayData.itemId) {
         console.log(`  🔄 UPDATING...`)
         await prisma.artist.update({
           where: { id: artist.id },
           data: {
             type: mondayData.type as 'MUA' | 'HS',
-            mondayItemId: mondayData.itemId,
+            clientItemId: mondayData.itemId,
           },
         })
         console.log(`  ✅ Updated!\n`)

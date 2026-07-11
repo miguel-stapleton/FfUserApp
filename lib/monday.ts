@@ -442,7 +442,7 @@ export async function getClientFromMonday(itemId: string): Promise<MondayClient 
     }
 
     return {
-      mondayItemId: item.id,
+      clientItemId: item.id,
       // Prefer Bride's Name (short_text8) over the raw item title for display
       name: ((): string => {
         try {
@@ -580,7 +580,7 @@ export async function getAllClientsFromMonday(): Promise<MondayClient[]> {
         }
 
         clients.push({
-          mondayItemId: item.id,
+          clientItemId: item.id,
           // Prefer Bride's Name (short_text8) over the raw item title for display
           name: ((): string => {
             try {

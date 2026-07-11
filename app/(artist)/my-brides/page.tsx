@@ -16,7 +16,7 @@ interface Companion {
 }
 
 interface BookedBride {
-  mondayItemId: string
+  clientItemId: string
   brideName: string
   weddingDate: string | null
   beautyVenue: string
@@ -200,7 +200,7 @@ export default function MyBridesPage() {
               <div className="space-y-4">
                 {brides.map((bride) => (
                   <BrideCard
-                    key={bride.mondayItemId}
+                    key={bride.clientItemId}
                     bride={bride}
                     companionLabel={companionLabel}
                   />

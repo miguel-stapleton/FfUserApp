@@ -10,7 +10,7 @@ import { Separator } from '@/components/ui/separator'
 import { BackofficeClientInfo } from '@/lib/types'
 
 interface BackofficeInfoModalProps {
-  mondayClientItemId: string | null
+  clientItemId: string | null
   isOpen: boolean
   onClose: () => void
 }
@@ -22,7 +22,7 @@ interface ArtistGroup {
 }
 
 export function BackofficeInfoModal({ 
-  mondayClientItemId, 
+  clientItemId, 
   isOpen, 
   onClose 
 }: BackofficeInfoModalProps) {
@@ -31,13 +31,13 @@ export function BackofficeInfoModal({
   const [error, setError] = useState<string | null>(null)
 
   const fetchClientInfo = useCallback(async () => {
-    if (!mondayClientItemId) return
+    if (!clientItemId) return
 
     setLoading(true)
     setError(null)
 
     try {
-      const response = await fetch(`/api/backoffice/clients/${mondayClientItemId}/info`, {
+      const response = await fetch(`/api/backoffice/clients/${clientItemId}/info`, {
         credentials: 'include',
       })
 
@@ -53,13 +53,13 @@ export function BackofficeInfoModal({
     } finally {
       setLoading(false)
     }
-  }, [mondayClientItemId])
+  }, [clientItemId])
 
   useEffect(() => {
-    if (isOpen && mondayClientItemId) {
+    if (isOpen && clientItemId) {
       fetchClientInfo()
     }
-  }, [isOpen, mondayClientItemId, fetchClientInfo])
+  }, [isOpen, clientItemId, fetchClientInfo])
 
   const formatTimestamp = (timestamp: string) => {
     return formatInTimeZone(

@@ -37,7 +37,7 @@ async function main() {
   console.log(`\nClientService rows matching "Rosemina": ${services.length}`)
   for (const cs of services) {
     console.log(
-      `  - id=${cs.id}  mondayClientItemId=${cs.mondayClientItemId}  service=${cs.service}  bridesName="${cs.bridesName}"`
+      `  - id=${cs.id}  clientItemId=${cs.clientItemId}  service=${cs.service}  bridesName="${cs.bridesName}"`
     )
   }
 

@@ -67,7 +67,7 @@ async function fetchArtistsFromMonday(boardId: string, type: 'MUA' | 'HS') {
   )
 
   const board = response.data.data.boards[0]
-  const artists: Array<{ email: string; name: string; mondayItemId: string; type: 'MUA' | 'HS' }> = []
+  const artists: Array<{ email: string; name: string; clientItemId: string; type: 'MUA' | 'HS' }> = []
 
   for (const item of board.items_page.items) {
     const emailColumn = item.column_values.find((col: any) => col.id === 'email')
@@ -77,7 +77,7 @@ async function fetchArtistsFromMonday(boardId: string, type: 'MUA' | 'HS') {
       artists.push({
         email,
         name: item.name,
-        mondayItemId: item.id,
+        clientItemId: item.id,
         type,
       })
     }
@@ -145,7 +145,7 @@ async function main() {
             email: artist.email,
             type: artist.type,
             tier: 'FRESH', // Default tier
-            mondayItemId: artist.mondayItemId,
+            clientItemId: artist.clientItemId,
             active: true,
           },
         })
@@ -154,7 +154,7 @@ async function main() {
       console.log(`  ✅ Created user and artist record`)
       console.log(`     Username: ${username}`)
       console.log(`     Type: ${artist.type}`)
-      console.log(`     Monday ID: ${artist.mondayItemId}\n`)
+      console.log(`     Monday ID: ${artist.clientItemId}\n`)
       createdCount++
     }
 

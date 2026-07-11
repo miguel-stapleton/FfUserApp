@@ -81,7 +81,7 @@ export async function sweepOrphanedClientServices(opts?: {
           proposalCount,
           source: 'sweep-orphans',
           bridesName: cs.bridesName,
-          mondayClientItemId: cs.mondayClientItemId,
+          clientItemId: cs.clientItemId,
         },
       })
 

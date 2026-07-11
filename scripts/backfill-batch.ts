@@ -5,10 +5,10 @@
  *
  * Usage:
  *   set -a && source .env.local && set +a && \
- *     npx tsx scripts/backfill-batch.ts <mondayItemId>
+ *     npx tsx scripts/backfill-batch.ts <clientItemId>
  *
  *   set -a && source .env.local && set +a && \
- *     npx tsx scripts/backfill-batch.ts <mondayItemId> --dry-run
+ *     npx tsx scripts/backfill-batch.ts <clientItemId> --dry-run
  *
  * For each service type (MUA + HS):
  *   1. Find the ClientService row for this Monday item ID.
@@ -29,15 +29,15 @@ const SERVICE_TYPES = ['MUA', 'HS'] as const
 
 async function main() {
   const args = process.argv.slice(2)
-  const mondayItemId = args.find((a) => !a.startsWith('--'))
+  const clientItemId = args.find((a) => !a.startsWith('--'))
   const dryRun = args.includes('--dry-run')
 
-  if (!mondayItemId || !/^\d+$/.test(mondayItemId)) {
-    console.error('Usage: npx tsx scripts/backfill-batch.ts <mondayItemId> [--dry-run]')
+  if (!clientItemId || !/^\d+$/.test(clientItemId)) {
+    console.error('Usage: npx tsx scripts/backfill-batch.ts <clientItemId> [--dry-run]')
     process.exit(1)
   }
 
-  console.log(`\n=== Backfill batch for Monday item ${mondayItemId} ===`)
+  console.log(`\n=== Backfill batch for Monday item ${clientItemId} ===`)
   if (dryRun) console.log('(dry run — no writes will be made)\n')
 
   const now = new Date()
@@ -46,7 +46,7 @@ async function main() {
     console.log(`\n--- ${serviceType} side ---`)
 
     const cs = await prisma.clientService.findFirst({
-      where: { mondayClientItemId: mondayItemId, service: serviceType },
+      where: { clientItemId: clientItemId, service: serviceType },
       include: {
         batches: {
           select: { id: true, mode: true, state: true, deadlineAt: true, createdAt: true },
@@ -56,7 +56,7 @@ async function main() {
     })
 
     if (!cs) {
-      console.log(`No ${serviceType} ClientService row found for ${mondayItemId}. Skipping.`)
+      console.log(`No ${serviceType} ClientService row found for ${clientItemId}. Skipping.`)
       continue
     }
 
