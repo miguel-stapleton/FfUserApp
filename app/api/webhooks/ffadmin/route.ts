@@ -11,13 +11,14 @@ export const runtime = 'nodejs'
 
 export async function POST(request: NextRequest) {
   try {
-    const secret = request.headers.get('x-ffadmin-secret')
+    const body = await request.json()
+    const { type } = body
+
+    // Accept secret from header OR body (fireWebhook sends it in the body)
+    const secret = request.headers.get('x-ffadmin-secret') ?? body.secret
     if (process.env.FFADMIN_WEBHOOK_SECRET && secret !== process.env.FFADMIN_WEBHOOK_SECRET) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-
-    const body = await request.json()
-    const { type } = body
 
     if (type === 'new_independent_guest' || type === 'guest_boolean_flip') {
       await handleIndependentGuest(body)
