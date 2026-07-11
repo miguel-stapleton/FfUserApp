@@ -17,7 +17,6 @@ export async function GET(request: NextRequest) {
         email: true,
         type: true,
         active: true,
-        clientItemId: true,
       },
     })
 
