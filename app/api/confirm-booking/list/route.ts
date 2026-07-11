@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
       .eq(emailCol, artist.email)
       .maybeSingle()
 
-    const fullName: string | null = artistRow?.[nameCol] ?? null
+    const fullName: string | null = (artistRow as any)?.[nameCol] ?? null
     if (!fullName) return NextResponse.json({ items: [] })
 
     const statusField = artist.type === 'MUA' ? 'm_status' : 'h_status'

@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
       .eq(emailCol, artist.email)
       .maybeSingle()
 
-    const fullName: string | null = artistRow?.[nameCol] ?? null
+    const fullName: string | null = (artistRow as any)?.[nameCol] ?? null
     if (!fullName) {
       console.warn('[my-booked-brides] Artist full name not found in FFadmin for', artist.email)
       return NextResponse.json({ brides: [] })
@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
 
           if (companionRow) {
             const companionArtist = await prisma.artist.findFirst({
-              where: { email: companionRow[companionEmailCol] },
+              where: { email: (companionRow as any)[companionEmailCol] },
               include: { user: true },
             })
             if (companionArtist) {
