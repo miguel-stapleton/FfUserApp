@@ -1,378 +1,58 @@
 import { prisma } from '@/lib/prisma'
 import { logAudit } from '@/lib/audit'
-import axios from 'axios'
-import { 
-  ProposalBatchMode, 
-  BatchStartReason, 
-  ProposalResponse, 
+import {
+  ProposalBatchMode,
+  BatchStartReason,
+  ProposalResponse,
   ArtistProposalCard,
-  CreateBatchRequest,
-  RespondToProposalRequest
+  RespondToProposalRequest,
 } from '@/lib/types'
+import {
+  ffadmin,
+  EMAIL_TO_POLL_COLUMN,
+  EMAIL_TO_DISPLAY_NAME,
+  resolveArtistEmailFromDisplayName,
+  addFFadminActivityLog,
+} from '@/lib/ffadmin'
 
-const MONDAY_API_URL = 'https://api.monday.com/v2'
-const MONDAY_API_TOKEN = process.env.MONDAY_API_TOKEN
-// Always fetch from the Clients board
-const MONDAY_BOARD_ID = process.env.MONDAY_CLIENTS_BOARD_ID || process.env.MONDAY_BOARD_ID || '1260828829'
-// Kept for backward compatibility but no longer used for selection
-const MONDAY_MUA_BOARD_ID = process.env.MONDAY_MUA_BOARD_ID
-const MONDAY_HS_BOARD_ID = process.env.MONDAY_HS_BOARD_ID
-const MONDAY_MSTATUS_COLUMN_ID = process.env.MONDAY_MSTATUS_COLUMN_ID || 'project_status'
-const MONDAY_HSTATUS_COLUMN_ID = process.env.MONDAY_HSTATUS_COLUMN_ID || 'dup__of_mstatus'
+// ── Batch creation ────────────────────────────────────────────────────────────
 
-// Independent Guests board + columns
-const MONDAY_INDEPENDENT_GUESTS_BOARD_ID = '1913629164'
-const MONDAY_INDEP_GUESTS_EVENT_DATE_COL = 'date6'
-const MONDAY_INDEP_GUESTS_LOCATION_COL = 'short_text1'
-const MONDAY_INDEP_GUESTS_MUA_BOOL_COL = 'booleancr88sq6z' // MU?
-const MONDAY_INDEP_GUESTS_HS_BOOL_COL = 'booleany6w6zo7p'  // H? / False
-
-// Polls board (for Independent Guests YES/NO follow-up)
-const MONDAY_POLLS_BOARD_ID = '1952175468'
-const MONDAY_POLLS_ITEM_IDD_COL = 'text_mkr0k74g' // Item IDD column on Polls board
-
-// MUA email -> Polls boolean column id
-const MUA_POLL_COLUMN_BY_EMAIL: Record<string, string> = {
-  'gi.lola@gmail.com': 'boolean_mkqwkp91',
-  'tecadete@gmail.com': 'boolean_mkqwxdsm',
-  'info@miguelstapleton.art': 'boolean_mkqwjvzr',
-  'iaguiarmakeup@gmail.com': 'boolean_mkqwadn2',
-  'anaroma.makeup@gmail.com': 'boolean_mkqw5473',
-  'anaferreira.geral@hotmail.com': 'boolean_mkqwpjnx',
-  'anacatarinanev@gmail.com': 'boolean_mkqw9z4',
-  'ritarnunes.mua@gmail.com': 'boolean_mkqw3err',
-  'sara.jogo@hotmail.com': 'boolean_mkqwhc0d',
-  'filipawahnon.mua@gmail.com': 'boolean_mkqwwwtg',
-}
-
-// HS email -> Polls boolean column id
-const HS_POLL_COLUMN_BY_EMAIL: Record<string, string> = {
-  'hi@letshair.com': 'boolean_mkqwrtzh',
-  'liliapcosta@gmail.com': 'boolean_mkqwm8w8',
-  'andreiadematoshair@gmail.com': 'boolean_mkqw9etg',
-  'riberic@gmail.com': 'boolean_mkqwt8cv',
-  'kseniya.hairstylist@gmail.com': 'boolean_mkqwbra6',
-  'joanacarvalho_@hotmail.com': 'boolean_mkqwx8ve',
-  'olga.amaral.hilario@gmail.com': 'boolean_mkqwnszp',
-}
-
-// Clients board status/color columns for "Pode!/Não pode"
-const MONDAY_CLIENTS_MUAPODE_COL = 'color_mkwhcpdm'
-const MONDAY_CLIENTS_HSPODE_COL = 'color_mkwh47yj'
-
-// Display names for updates
-const MUA_NAME_BY_EMAIL: Record<string, string> = {
-  'gi.lola@gmail.com': 'Lola',
-  'info@miguelstapleton.art': 'Miguel',
-  'tecadete@gmail.com': 'Teresa',
-  'iaguiarmakeup@gmail.com': 'Inês',
-  'anaroma.makeup@gmail.com': 'Ana Roma',
-  'anaferreira.geral@hotmail.com': 'Sofia',
-  'anacatarinanev@gmail.com': 'Ana Neves',
-  'ritarnunes.mua@gmail.com': 'Rita',
-  'sara.jogo@hotmail.com': 'Sara',
-  'filipawahnon.mua@gmail.com': 'Filipa',
-}
-
-const HS_NAME_BY_EMAIL: Record<string, string> = {
-  'hi@letshair.com': 'Agne',
-  'liliapcosta@gmail.com': 'Lília',
-  'andreiadematoshair@gmail.com': 'Andreia',
-  'riberic@gmail.com': 'Eric',
-  'kseniya.hairstylist@gmail.com': 'Oksana',
-  'joanacarvalho_@hotmail.com': 'Joana',
-  'olga.amaral.hilario@gmail.com': 'Olga H',
-}
-
-// Normalize emails for mappi ng lookups
-const normEmail = (e?: string | null) => (e || '').trim().toLowerCase()
-
-// Helper: find Polls item by matching Item IDD (guest/bride Monday item id)
-async function findPollsItemIdByGuestId(guestItemId: string): Promise<string | null> {
-  const base = String(guestItemId).trim()
-  const candidates = [base, `monday-${base}`]
-
-  // 1) Try exact matches via items_by_column_values for each candidate
-  const exactQuery = `
-    query FindPollsItem($boardId: ID!, $colId: String!, $value: String!) {
-      items_by_column_values(board_id: $boardId, column_id: $colId, column_value: $value) { id }
-    }
-  `
-  for (const value of candidates) {
-    try {
-      const resp: any = await axios.post(
-        MONDAY_API_URL,
-        { query: exactQuery, variables: { boardId: MONDAY_POLLS_BOARD_ID, colId: MONDAY_POLLS_ITEM_IDD_COL, value } },
-        { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
-      )
-      const items = resp.data?.data?.items_by_column_values || []
-      if (Array.isArray(items) && items.length > 0 && items[0]?.id) {
-        return String(items[0].id)
-      }
-    } catch (e) {
-      console.warn('[polls] items_by_column_values lookup failed for', value, e)
-    }
-  }
-
-  // 2) Fallback: scan items_page and match the Item IDD column text/value loosely
-  try {
-    let cursor: string | null = null
-    while (true) {
-      const scanQuery = `
-        query ScanPolls($boardId: ID!, $cursor: String) {
-          boards(ids: [$boardId]) {
-            items_page(limit: 100, cursor: $cursor) {
-              cursor
-              items { id column_values { id text value } }
-            }
-          }
-        }
-      `
-      const scanResp: any = await axios.post(
-        MONDAY_API_URL,
-        { query: scanQuery, variables: { boardId: MONDAY_POLLS_BOARD_ID, cursor } },
-        { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
-      )
-      const page = scanResp.data?.data?.boards?.[0]?.items_page
-      if (!page) break
-      const items = page.items || []
-      for (const it of items) {
-        const cv = (it.column_values || []).find((c: any) => c.id === MONDAY_POLLS_ITEM_IDD_COL)
-        // Prefer explicit text, but also parse JSON value if present
-        let t = (cv?.text || '').toString().trim()
-        if ((!t || t.length === 0) && cv?.value) {
-          try {
-            const parsed = JSON.parse(cv.value)
-            const pv = (parsed?.text || parsed?.value || '').toString().trim()
-            if (pv) t = pv
-          } catch {}
-        }
-        if (!t) continue
-        const norm = t.trim()
-        if (candidates.includes(norm) || norm.includes(base)) {
-          return String(it.id)
-        }
-      }
-      cursor = page.cursor
-      if (!cursor) break
-    }
-  } catch (e) {
-    console.warn('[polls] items_page scan failed', e)
-  }
-
-  return null
-}
-
-// Helper: set a boolean column on Polls item
-async function setPollsBoolean(itemId: string, columnId: string, checked: boolean): Promise<void> {
-  const mutation = `
-    mutation SetBool($boardId: ID!, $itemId: ID!, $columnId: String!, $val: JSON!) {
-      change_column_value(board_id: $boardId, item_id: $itemId, column_id: $columnId, value: $val) { id }
-    }
-  `
-  const value = JSON.stringify({ checked: checked ? 'true' : 'false' })
-  await axios.post(
-    MONDAY_API_URL,
-    { query: mutation, variables: { boardId: MONDAY_POLLS_BOARD_ID, itemId, columnId, val: value } },
-    { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
-  )
-}
-
-// Helper: add an update (comment) on a Monday item (Guests board)
-async function addGuestUpdate(itemId: string, body: string): Promise<void> {
-  const mutation = `
-    mutation AddUpdate($itemId: ID!, $body: String!) { create_update (item_id: $itemId, body: $body) { id } }
-  `
-  await axios.post(
-    MONDAY_API_URL,
-    { query: mutation, variables: { itemId, body } },
-    { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
-  )
-}
-
-// Helper: add an update (comment) on a Monday item (generic)
-async function addItemUpdate(itemId: string, body: string): Promise<void> {
-  const mutation = `
-    mutation AddUpdate($itemId: ID!, $body: String!) { create_update (item_id: $itemId, body: $body) { id } }
-  `
-  await axios.post(
-    MONDAY_API_URL,
-    { query: mutation, variables: { itemId, body } },
-    { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
-  )
-}
-
-// Helper: set a Status/Color label on Clients board
-async function setClientsStatusLabel(itemId: string, columnId: string, label: string): Promise<void> {
-  console.log('[setClientsStatusLabel] Attempting to set status', { itemId, columnId, label, boardId: MONDAY_BOARD_ID })
-  
-  const mutation = `
-    mutation SetStatus($boardId: ID!, $itemId: ID!, $columnId: String!, $val: JSON!) {
-      change_column_value(board_id: $boardId, item_id: $itemId, column_id: $columnId, value: $val) { id }
-    }
-  `
-  const value = JSON.stringify({ label })
-  
-  try {
-    const response = await axios.post(
-      MONDAY_API_URL,
-      { query: mutation, variables: { boardId: MONDAY_BOARD_ID, itemId, columnId, val: value } },
-      { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
-    )
-    
-    // Check for GraphQL errors in response
-    if (response.data?.errors && response.data.errors.length > 0) {
-      const errorMsg = response.data.errors.map((e: any) => e.message).join(', ')
-      console.error('[setClientsStatusLabel] Monday.com API returned errors:', response.data.errors)
-      throw new Error(`Monday.com API error: ${errorMsg}`)
-    }
-    
-    // Check if the mutation succeeded
-    if (!response.data?.data?.change_column_value?.id) {
-      console.error('[setClientsStatusLabel] Unexpected response structure:', response.data)
-      throw new Error('Monday.com API did not return expected data structure')
-    }
-    
-    console.log('[setClientsStatusLabel] Successfully updated column', { itemId, columnId, label })
-  } catch (error) {
-    if (axios.isAxiosError(error)) {
-      console.error('[setClientsStatusLabel] Axios error:', {
-        message: error.message,
-        status: error.response?.status,
-        statusText: error.response?.statusText,
-        data: error.response?.data,
-        itemId,
-        columnId,
-        label
-      })
-      throw new Error(`Failed to update Monday.com column ${columnId}: ${error.message}`)
-    }
-    throw error
-  }
-}
-
-// Artist name mappings for "copy paste para whatsapp" patterns
-const WHATSAPP_PATTERNS: Record<string, string> = {
-  'Lola': 'copy paste para whatsapp de Lola',
-  'Miguel': 'copy paste para whatsapp de Miguel',
-  'Teresa': 'copy paste para whatsapp de Teresa',
-  'Inês': 'copy paste para whatsapp de Inês',
-  'Rita': 'copy paste para whatsapp de Rita',
-  'Sofia': 'copy paste para whatsapp de Sofia',
-  'Filipa': 'copy paste para whatsapp de Filipa',
-  'Ana Neves': 'copy paste para whatsapp de Ana Neves',
-  'Ana Roma': 'copy paste para whatsapp de Ana Roma',
-  'Sara': 'copy paste para whatsapp de Sara',
-  'Olga H': 'copy paste para whatsapp de Olga H',
-  'Agne': 'copy paste para whatsapp de Agne',
-  'Lília': 'copy paste para whatsapp de Lília',
-  'Andreia': 'copy paste para whatsapp de Andreia',
-  'Eric': 'copy paste para whatsapp de Eric',
-  'Oksana': 'copy paste para whatsapp de Oksana',
-  'Joana': 'copy paste para whatsapp de Joana',
-}
-
-// Get artist first name for matching
-function getArtistFirstName(fullName: string): string {
-  // Handle special cases
-  if (fullName.includes('Ana Neves')) return 'Ana Neves'
-  if (fullName.includes('Ana Roma')) return 'Ana Roma'
-  if (fullName.includes('Olga H')) return 'Olga H'
-  
-  // For others, find the matching key
-  for (const key of Object.keys(WHATSAPP_PATTERNS)) {
-    if (fullName.includes(key)) {
-      return key
-    }
-  }
-  
-  return fullName.split(' ')[0]
-}
-
-/**
- * Create a proposal batch and associated proposals for artists
- */
 export async function createBatchAndProposals(
   clientServiceId: string,
   mode: ProposalBatchMode,
   reason: BatchStartReason,
-  targetCount?: number
 ): Promise<{ batchId: string; proposalCount: number }> {
   return await prisma.$transaction(async (tx) => {
-    // Get client service details
-    const clientService = await tx.clientService.findUnique({
-      where: { id: clientServiceId },
-    })
+    const clientService = await tx.clientService.findUnique({ where: { id: clientServiceId } })
+    if (!clientService) throw new Error('Client service not found')
 
-    if (!clientService) {
-      throw new Error('Client service not found')
-    }
-
-    // Calculate deadline (72 hours from now)
     const deadlineAt = new Date(Date.now() + 72 * 60 * 60 * 1000)
-
-    // Create the proposal batch
     const batch = await tx.proposalBatch.create({
-      data: {
-        clientServiceId,
-        mode,
-        state: 'OPEN',
-        startReason: reason as any,
-        deadlineAt,
-      },
+      data: { clientServiceId, mode, state: 'OPEN', startReason: reason as any, deadlineAt },
     })
 
-    // Get eligible artists based on service type and mode
     let artists
     if (mode === 'SINGLE') {
-      // For single mode, get one artist based on tier priority
       artists = await tx.artist.findMany({
-        where: {
-          active: true,
-          type: clientService.service, // Match service type (MUA/HS)
-        },
-        orderBy: [
-          { tier: 'asc' }, // FOUNDER first, then RESIDENT, then FRESH
-          { createdAt: 'asc' }, // Oldest first for fairness
-        ],
+        where: { active: true, type: clientService.service },
+        orderBy: [{ tier: 'asc' }, { createdAt: 'asc' }],
         take: 1,
       })
     } else {
-      // For broadcast mode, get ALL active artists of the service type
-      // No constraints on distance or caps - all active artists receive proposals
-      artists = await tx.artist.findMany({
-        where: {
-          active: true,
-          type: clientService.service, // Match service type (MUA/HS)
-        },
-        // No limit - all active artists get the proposal
-      })
+      artists = await tx.artist.findMany({ where: { active: true, type: clientService.service } })
     }
 
-    // Create proposals for selected artists
     const proposals = await Promise.all(
       artists.map(artist =>
         tx.proposal.create({
-          data: {
-            proposalBatchId: batch.id,
-            clientServiceId: clientService.id,
-            artistId: artist.id,
-          },
+          data: { proposalBatchId: batch.id, clientServiceId: clientService.id, artistId: artist.id },
         })
       )
     )
-
-    return {
-      batchId: batch.id,
-      proposalCount: proposals.length,
-    }
+    return { batchId: batch.id, proposalCount: proposals.length }
   })
 }
 
-/**
- * Create a proposal batch and proposals for a specific list of artist IDs.
- * Does NOT change existing behavior elsewhere; use this only when you must target known artists.
- */
 export async function createBatchForSpecificArtists(
   clientServiceId: string,
   mode: ProposalBatchMode,
@@ -380,273 +60,115 @@ export async function createBatchForSpecificArtists(
   artistIds: string[],
 ): Promise<{ batchId: string; proposalCount: number }> {
   return await prisma.$transaction(async (tx) => {
-    // Get client service details
-    const clientService = await tx.clientService.findUnique({
-      where: { id: clientServiceId },
-    })
+    const clientService = await tx.clientService.findUnique({ where: { id: clientServiceId } })
+    if (!clientService) throw new Error('Client service not found')
 
-    if (!clientService) {
-      throw new Error('Client service not found')
-    }
-
-    // Calculate deadline (72 hours from now)
     const deadlineAt = new Date(Date.now() + 72 * 60 * 60 * 1000)
-
-    // Create the proposal batch
     const batch = await tx.proposalBatch.create({
-      data: {
-        clientServiceId,
-        mode,
-        state: 'OPEN',
-        startReason: reason as any,
-        deadlineAt,
-      },
+      data: { clientServiceId, mode, state: 'OPEN', startReason: reason as any, deadlineAt },
     })
 
-    // Create proposals exactly for the provided artist IDs
     const proposals = await Promise.all(
       artistIds.map(artistId =>
         tx.proposal.create({
-          data: {
-            proposalBatchId: batch.id,
-            clientServiceId: clientService.id,
-            artistId,
-          },
+          data: { proposalBatchId: batch.id, clientServiceId: clientService.id, artistId },
         })
       )
     )
-
     return { batchId: batch.id, proposalCount: proposals.length }
   })
 }
 
-/**
- * Get open proposals for an artist.
- *
- * Strategy:
- *   1. Bride proposals — served from the local PostgreSQL DB (fast indexed query).
- *      The webhook already writes ClientService + ProposalBatch + Proposal records
- *      whenever a status change triggers a notification, so the DB is always current.
- *   2. Independent Guests — still fetched from the Monday Guests board because guest
- *      ClientService rows are created lazily (only on response), so they don't exist
- *      in the DB at list time.
- */
+// ── Open proposals for artist ─────────────────────────────────────────────────
+
 export async function getOpenProposalsForArtist(userId: string): Promise<ArtistProposalCard[]> {
+  const artist = await prisma.artist.findUnique({ where: { userId }, include: { user: true } })
+  if (!artist) throw new Error('Artist not found')
+
+  // ── 1. Bride proposals from local DB ─────────────────────────────────────
+  const dbProposals = await prisma.proposal.findMany({
+    where: {
+      artistId: artist.id,
+      response: null,
+      proposalBatch: { state: 'OPEN', deadlineAt: { gt: new Date() } },
+    },
+    include: { proposalBatch: true, clientService: true },
+    orderBy: { createdAt: 'desc' },
+  })
+
+  const respondedProposals = await prisma.proposal.findMany({
+    where: { artistId: artist.id, response: { not: null } },
+    include: { clientService: true },
+  })
+  const respondedClientIds = new Set(respondedProposals.map(p => p.clientService.clientItemId))
+  const seenClientIds = new Set<string>()
+
+  const proposals: ArtistProposalCard[] = dbProposals
+    .filter(p => {
+      const clientId = p.clientService.clientItemId
+      if (respondedClientIds.has(clientId)) return false
+      if (seenClientIds.has(clientId)) return false
+      seenClientIds.add(clientId)
+      return true
+    })
+    .map(p => ({
+      id: p.clientService.clientItemId,
+      batchId: p.proposalBatchId,
+      clientName: p.clientService.bridesName,
+      serviceType: artist.type as any,
+      eventDate: p.clientService.weddingDate,
+      beautyVenue: p.clientService.beautyVenue || '',
+      observations: p.clientService.description || '',
+      createdAt: p.createdAt,
+      isExpired: false,
+    }))
+
+  // ── 2. Independent Guests from FFadmin Supabase ──────────────────────────
   try {
-    console.log('=== GET OPEN PROPOSALS (DB-first) ===')
-    console.log('User ID:', userId)
+    const boolCol = artist.type === 'MUA' ? 'mu' : 'h'
+    const { data: guests, error } = await ffadmin
+      .from('independent_guests')
+      .select('*')
+      .eq(boolCol, true)
 
-    // Get artist record
-    const artist = await prisma.artist.findUnique({
-      where: { userId },
-      include: { user: true },
-    })
+    if (error) {
+      console.error('[proposals] FFadmin independent_guests fetch failed:', error)
+    } else if (guests) {
+      for (const g of guests) {
+        const itemId = String(g.item_id_ind)
+        if (respondedClientIds.has(itemId)) continue
 
-    if (!artist) {
-      console.log('Artist not found for user ID:', userId)
-      throw new Error('Artist not found')
-    }
-
-    console.log('Artist email:', artist.email)
-    console.log('Artist type:', artist.type)
-
-    // ── 1. Bride proposals from DB ────────────────────────────────────────────
-    // Single indexed query replaces the previous full Monday board pagination.
-    // We also guard on deadlineAt > now: any OPEN batch whose 72-hour window has
-    // already passed is stale (the cron should have closed it, but may not have
-    // for older records). Only show proposals that are still within their active
-    // window — this matches the intended business logic.
-    const dbProposals = await prisma.proposal.findMany({
-      where: {
-        artistId: artist.id,
-        response: null,
-        proposalBatch: { state: 'OPEN', deadlineAt: { gt: new Date() } },
-      },
-      include: {
-        proposalBatch: true,
-        clientService: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    })
-
-    console.log('Open DB proposals found:', dbProposals.length)
-
-    // Build the set of clients this artist has EVER responded to (across all batches).
-    // This is critical: a single client can accumulate multiple ProposalBatch rows if
-    // the Monday webhook fires more than once (e.g. status toggled). Responding only
-    // closes one batch's proposal; others stay response=null. Without this filter
-    // those orphan proposals would keep re-appearing even after the artist answered.
-    const respondedProposals = await prisma.proposal.findMany({
-      where: {
-        artistId: artist.id,
-        response: { not: null },
-      },
-      include: { clientService: true },
-    })
-    const respondedClientIds = new Set(
-      respondedProposals.map(p => p.clientService.mondayClientItemId)
-    )
-
-    console.log('Artist has prior responses for', respondedClientIds.size, 'clients')
-
-    // Also deduplicate by mondayClientItemId: if multiple open batches exist for the
-    // same client, only surface one card (the newest). The set below tracks which
-    // clients we've already added so subsequent duplicates are skipped.
-    const seenClientIds = new Set<string>()
-
-    const proposals: ArtistProposalCard[] = dbProposals
-      .filter(p => {
-        const clientId = p.clientService.mondayClientItemId
-        if (respondedClientIds.has(clientId)) return false  // already answered
-        if (seenClientIds.has(clientId)) return false        // duplicate batch
-        seenClientIds.add(clientId)
-        return true
-      })
-      .map(p => ({
-        // Return the Monday item ID as `id` so the respond endpoint routes correctly
-        // through its existing Monday side-effects path (Pode!, Polls, comments, etc.)
-        id: p.clientService.mondayClientItemId,
-        batchId: p.proposalBatchId,
-        clientName: p.clientService.bridesName,
-        serviceType: artist.type as any,
-        eventDate: p.clientService.weddingDate,
-        beautyVenue: p.clientService.beautyVenue || '',
-        observations: p.clientService.description || '',
-        createdAt: p.createdAt,
-        isExpired: false,
-      }))
-
-    // ── 2. Independent Guests from Monday ────────────────────────────────────
-    // respondedClientIds is already built above — reuse it for guest filtering.
-
-    console.log('Artist has already responded to', respondedClientIds.size, 'clients')
-
-    try {
-      let guestItems: any[] = []
-      let gCursor: string | null = null
-      let gHasMore = true
-      while (gHasMore) {
-        const guestsQuery = `
-          query GetGuests($boardId: ID!, $cursor: String) {
-            boards(ids: [$boardId]) {
-              items_page(limit: 100, cursor: $cursor) {
-                cursor
-                items {
-                  id
-                  name
-                  column_values { id text value }
-                }
-              }
-            }
-          }
-        `
-        const guestsResp: any = await axios.post(
-          MONDAY_API_URL,
-          { query: guestsQuery, variables: { boardId: MONDAY_INDEPENDENT_GUESTS_BOARD_ID, cursor: gCursor } },
-          { headers: { 'Authorization': MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
-        )
-        if (guestsResp.data.errors) {
-          console.error('Monday API errors (guests):', guestsResp.data.errors)
-          break
-        }
-        const gBoard = guestsResp.data?.data?.boards?.[0]
-        if (!gBoard?.items_page) break
-        guestItems = guestItems.concat(gBoard.items_page.items || [])
-        gCursor = gBoard.items_page.cursor
-        gHasMore = !!gCursor
-      }
-
-      for (const gItem of guestItems) {
-        // If artist already responded to this guest item, skip it
-        if (respondedClientIds.has(String(gItem.id))) continue
-
-        const colValues = gItem.column_values || []
-        const muaBool = colValues.find((c: any) => c.id === MONDAY_INDEP_GUESTS_MUA_BOOL_COL)
-        const hsBool = colValues.find((c: any) => c.id === MONDAY_INDEP_GUESTS_HS_BOOL_COL)
-
-        // Parse boolean from JSON value or text
-        const parseBool = (col: any): boolean => {
-          if (!col) return false
-          if (typeof col.text === 'string') {
-            const t = col.text.toLowerCase().trim()
-            if (t === 'true' || t === 'checked') return true
-          }
-          if (col.value) {
-            try {
-              const v = JSON.parse(col.value)
-              if (v && (v.checked === 'true' || v.checked === true)) return true
-            } catch {}
-          }
-          return false
-        }
-
-        const eligible = (artist.type === 'MUA' && parseBool(muaBool)) || (artist.type === 'HS' && parseBool(hsBool))
-        if (!eligible) continue
-
-        // Extract event date and location
-        let eventDate: Date | null = null
-        const dateCol = colValues.find((c: any) => c.id === MONDAY_INDEP_GUESTS_EVENT_DATE_COL)
-        if (dateCol?.value) {
-          try {
-            const dv = JSON.parse(dateCol.value)
-            if (dv?.date && typeof dv.date === 'string') {
-              const d = new Date(dv.date + 'T00:00:00')
-              if (!isNaN(d.getTime())) eventDate = d
-            }
-          } catch {}
-        }
-        if (!eventDate && dateCol?.text) {
-          const d = new Date(dateCol.text)
-          if (!isNaN(d.getTime())) eventDate = d
-        }
-
-        // Only include future dates; if no valid date, skip
-        if (!eventDate || eventDate.getTime() <= Date.now()) {
-          continue
-        }
-
-        const venueCol = colValues.find((c: any) => c.id === MONDAY_INDEP_GUESTS_LOCATION_COL)
-        const beautyVenue = venueCol?.text || ''
-
-        // Client's Name from short_text8 (fallback to item.name)
-        const nameCol = colValues.find((c: any) => c.id === 'short_text8')
-        const clientName = (nameCol?.text || '').trim() || gItem.name
+        const eventDate = g.event_date ? new Date(g.event_date + 'T00:00:00') : null
+        if (!eventDate || eventDate.getTime() <= Date.now()) continue
 
         proposals.push({
-          id: `guest-${gItem.id}`,
-          batchId: 'guest-' + gItem.id,
-          clientName,
+          id: `guest-${itemId}`,
+          batchId: `guest-${itemId}`,
+          clientName: g.client_name || g.client_name || 'Guest',
           serviceType: artist.type as any,
           eventDate,
-          beautyVenue,
+          beautyVenue: g.beauty_venue || '',
           observations: '',
           createdAt: new Date(),
           isExpired: false,
         })
       }
-    } catch (guestErr) {
-      console.error('Failed to fetch Independent Guests board:', guestErr)
     }
-
-    console.log('Total proposals found:', proposals.length)
-    console.log('=== END GET OPEN PROPOSALS ===\n')
-
-    return proposals
-  } catch (error) {
-    console.error('Error in getOpenProposalsForArtist:', error)
-    throw error
+  } catch (e) {
+    console.error('[proposals] Failed to fetch independent guests from FFadmin:', e)
   }
+
+  return proposals
 }
 
-/**
- * Respond to a proposal (YES or NO)
- */
+// ── Respond to proposal ───────────────────────────────────────────────────────
+
 export async function respondToProposal({
   proposalId,
   response,
   actorUserId,
 }: RespondToProposalRequest): Promise<void> {
-  // Try DB proposal path first (existing flow)
+  // 1. Try direct DB proposal UUID match
   const dbProposal = await prisma.proposal.findUnique({
     where: { id: proposalId },
     include: {
@@ -657,16 +179,10 @@ export async function respondToProposal({
 
   if (dbProposal) {
     await prisma.$transaction(async (tx) => {
-      if (dbProposal.response) {
-        throw new Error('Proposal has already been responded to')
-      }
-      if (dbProposal.proposalBatch?.state !== 'OPEN') {
-        throw new Error('Proposal batch is not active')
-      }
-      await tx.proposal.update({
-        where: { id: proposalId },
-        data: { response, respondedAt: new Date() },
-      })
+      if (dbProposal.response) throw new Error('Proposal has already been responded to')
+      if (dbProposal.proposalBatch?.state !== 'OPEN') throw new Error('Proposal batch is not active')
+
+      await tx.proposal.update({ where: { id: proposalId }, data: { response, respondedAt: new Date() } })
       await logAudit({
         userId: actorUserId,
         action: 'PROPOSAL_RESPONSE',
@@ -694,12 +210,12 @@ export async function respondToProposal({
     return
   }
 
-  // Not a DB proposal ID. Handle Monday-based IDs.
-  // Resolve acting artist
+  // 2. Resolve acting artist
   const actor = await prisma.artist.findUnique({ where: { userId: actorUserId }, include: { user: true } })
   if (!actor) throw new Error('Artist not found')
 
-  // Helper to ensure OPEN batch exists
+  const displayName = EMAIL_TO_DISPLAY_NAME[actor.email] || actor.user?.username || actor.email
+
   const ensureOpenBatchId = async (clientServiceId: string): Promise<string> => {
     let batch = await prisma.proposalBatch.findFirst({ where: { clientServiceId, state: 'OPEN' as any } })
     if (!batch) {
@@ -716,67 +232,41 @@ export async function respondToProposal({
     return batch.id
   }
 
-  // Independent Guests ID: 'guest-<id>'
+  // 3. Independent Guest: proposalId = 'guest-<item_id_ind>'
   if (proposalId.startsWith('guest-')) {
     const guestItemId = proposalId.replace('guest-', '')
-    
-    // Ensure ClientService for Independent Guests exists (build minimal data from Guests board)
+
+    // Ensure ClientService exists
     let clientService = await prisma.clientService.findFirst({
-      where: { mondayClientItemId: guestItemId, service: actor.type as any },
+      where: { clientItemId: guestItemId, service: actor.type as any },
     })
     if (!clientService) {
-      const query = `
-        query GetGuestItem($itemId: ID!) {
-          items(ids: [$itemId]) { id name column_values { id text value } }
-        }
-      `
-      const resp: any = await axios.post(
-        MONDAY_API_URL,
-        { query, variables: { itemId: guestItemId } },
-        { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
-      )
-      const item = resp.data?.data?.items?.[0]
-      const cols: any[] = item?.column_values || []
-      const getCol = (id: string) => cols.find(c => c.id === id)
-      // Parse date6
-      let weddingDate = new Date()
-      const dCol = getCol(MONDAY_INDEP_GUESTS_EVENT_DATE_COL)
-      if (dCol?.value) {
-        try {
-          const dv = JSON.parse(dCol.value)
-          if (dv?.date && typeof dv.date === 'string') {
-            const d = new Date(dv.date + 'T00:00:00')
-            if (!isNaN(d.getTime())) weddingDate = d
-          }
-        } catch {}
-      } else if (dCol?.text) {
-        const d = new Date(dCol.text)
-        if (!isNaN(d.getTime())) weddingDate = d
-      }
+      // Read guest data from FFadmin
+      const { data: guest } = await ffadmin
+        .from('independent_guests')
+        .select('*')
+        .eq('item_id_ind', Number(guestItemId))
+        .single()
 
-      const venueCol = getCol(MONDAY_INDEP_GUESTS_LOCATION_COL)
-      const beautyVenue = venueCol?.text || ''
-      const nameCol = getCol('short_text8')
-      const clientName = (nameCol?.text || '').trim() || item?.name || 'Client'
+      const weddingDate = guest?.event_date ? new Date(guest.event_date + 'T00:00:00') : new Date()
       clientService = await prisma.clientService.create({
         data: {
-          mondayClientItemId: guestItemId,
+          clientItemId: guestItemId,
           service: actor.type as any,
-          bridesName: clientName,
+          bridesName: guest?.client_name || 'Guest',
           weddingDate,
-          beautyVenue,
-          description: null,
-          currentStatus: null,
+          beautyVenue: guest?.beauty_venue || '',
+          currentStatus: 'undecided',
         },
       })
     }
+
     const batchId = await ensureOpenBatchId(clientService.id)
-    // Upsert Proposal for this artist then set response
     const existing = await prisma.proposal.findFirst({ where: { proposalBatchId: batchId, artistId: actor.id } })
     let targetProposalId = existing?.id
     if (!existing) {
       const created = await prisma.proposal.create({
-        data: { proposalBatchId: batchId, clientServiceId: clientService.id, artistId: actor.id }
+        data: { proposalBatchId: batchId, clientServiceId: clientService.id, artistId: actor.id },
       })
       targetProposalId = created.id
     }
@@ -786,80 +276,75 @@ export async function respondToProposal({
       action: 'PROPOSAL_RESPONSE',
       entityType: 'CLIENT_SERVICE',
       entityId: clientService.id,
-      details: { mondayClientItemId: guestItemId, response, artistEmail: actor.email },
+      details: { clientItemId: guestItemId, response, artistEmail: actor.email },
     })
 
-    // Apply Monday side-effects for guests: YES -> set Polls TRUE; NO -> set Polls FALSE + updates
+    // FFadmin side-effects for guests: update polls + activity log
     try {
-      if (response === 'YES') {
-        const pollsItemId = await findPollsItemIdByGuestId(guestItemId)
-        if (pollsItemId) {
-          const colId = actor.type === 'MUA' ? MUA_POLL_COLUMN_BY_EMAIL[actor.email] : HS_POLL_COLUMN_BY_EMAIL[actor.email]
-          if (colId) {
-            await setPollsBoolean(pollsItemId, colId, true)
-          } else {
-            console.warn('[guests] No Polls column mapping for', actor.email)
-          }
-        } else {
-          console.warn('[guests] Polls item not found for guest', guestItemId)
-        }
-      } else if (response === 'NO') {
-        const pollsItemId = await findPollsItemIdByGuestId(guestItemId)
-        const colId = actor.type === 'MUA' ? MUA_POLL_COLUMN_BY_EMAIL[actor.email] : HS_POLL_COLUMN_BY_EMAIL[actor.email]
-        const displayName = (actor.type === 'MUA' ? MUA_NAME_BY_EMAIL[actor.email] : HS_NAME_BY_EMAIL[actor.email]) || actor.user?.username || actor.email
-        const body = `${displayName} não pode`
+      const pollColumn = EMAIL_TO_POLL_COLUMN[actor.email]
+      const itemIdNum = Number(guestItemId)
+      const logMessage = response === 'YES' ? `${displayName} pode` : `${displayName} não pode`
 
-        if (!pollsItemId) {
-          console.warn('[guests:NO] Polls item not found for guest', guestItemId)
-          // Still add update to Clients item per spec
-          await addItemUpdate(guestItemId, body)
-        } else {
-          // If mapping exists, set boolean false; either way, add updates
-          if (colId) {
-            await setPollsBoolean(pollsItemId, colId, false)
-          } else {
-            console.warn('[guests:NO] No Polls column mapping for', actor.email)
-          }
-          await addGuestUpdate(guestItemId, body)
-        }
+      // Find polls row by item_id = item_id_ind
+      const { data: pollsRow } = await ffadmin
+        .from('polls')
+        .select('id')
+        .eq('item_id', itemIdNum)
+        .maybeSingle()
+
+      if (pollsRow && pollColumn) {
+        await ffadmin.from('polls').update({ [pollColumn]: response === 'YES' }).eq('id', pollsRow.id)
       }
-    } catch (mErr) {
-      console.error('[guests] Failed to apply Polls/Update actions:', mErr)
+
+      // Activity log on the guest item
+      const { data: guestRow } = await ffadmin
+        .from('independent_guests')
+        .select('item_id_ind')
+        .eq('item_id_ind', itemIdNum)
+        .maybeSingle()
+
+      if (guestRow) {
+        await addFFadminActivityLog(itemIdNum, logMessage)
+      }
+    } catch (e) {
+      console.error('[proposals] FFadmin side-effects failed for guest:', e)
     }
     return
   }
 
-  // Monday Clients board item ID: numeric or 'monday-<id>'
-  const mondayId = proposalId.startsWith('monday-') ? proposalId.replace('monday-', '') : proposalId
-  if (/^\d+$/.test(mondayId)) {
-    // Ensure ClientService exists (from Clients board)
-    const clientServiceId = await (async () => {
-      try {
-        // Uses Clients board data
-        const id = await (await import('./clients')).upsertClientServiceFromMonday(mondayId, actor.type as any, actorUserId)
-        return id
-      } catch (e) {
-        // As a fallback, create minimal client service if Monday lookup fails
-        let cs = await prisma.clientService.findFirst({ where: { mondayClientItemId: mondayId, service: actor.type as any } })
-        if (!cs) {
-          cs = await prisma.clientService.create({
-            data: {
-              mondayClientItemId: mondayId,
-              service: actor.type as any,
-              bridesName: 'Client',
-              weddingDate: new Date(),
-              beautyVenue: '',
-            },
-          })
-        }
-        return cs.id
-      }
-    })()
+  // 4. Bride proposals: proposalId = clientItemId (numeric string)
+  if (/^\d+$/.test(proposalId)) {
+    const clientItemId = proposalId
+
+    // Ensure ClientService exists
+    let clientServiceId: string
+    let currentStatus: string | null = null
+    let clientService = await prisma.clientService.findFirst({
+      where: { clientItemId, service: actor.type as any },
+    })
+    if (clientService) {
+      clientServiceId = clientService.id
+      currentStatus = clientService.currentStatus ?? null
+    } else {
+      const created = await prisma.clientService.create({
+        data: {
+          clientItemId,
+          service: actor.type as any,
+          bridesName: 'Client',
+          weddingDate: new Date(),
+          beautyVenue: '',
+        },
+      })
+      clientServiceId = created.id
+    }
+
     const batchId = await ensureOpenBatchId(clientServiceId)
     const existing = await prisma.proposal.findFirst({ where: { proposalBatchId: batchId, artistId: actor.id } })
     let targetProposalId = existing?.id
     if (!existing) {
-      const created = await prisma.proposal.create({ data: { proposalBatchId: batchId, clientServiceId, artistId: actor.id } })
+      const created = await prisma.proposal.create({
+        data: { proposalBatchId: batchId, clientServiceId, artistId: actor.id },
+      })
       targetProposalId = created.id
     }
     await prisma.proposal.update({ where: { id: targetProposalId! }, data: { response, respondedAt: new Date() } })
@@ -868,350 +353,104 @@ export async function respondToProposal({
       action: 'PROPOSAL_RESPONSE',
       entityType: 'CLIENT_SERVICE',
       entityId: clientServiceId,
-      details: { mondayClientItemId: mondayId, response, artistEmail: actor.email },
+      details: { clientItemId, response, artistEmail: actor.email },
     })
 
-    // Fetch Clients item to evaluate status gating (Mstatus/Hstatus)
-    let mStatusLabel = ''
-    let hStatusLabel = ''
+    // FFadmin side-effects based on currentStatus
     try {
-      const itemQuery = `
-        query GetItem($id: [ID!]) {
-          items(ids: $id) {
-            id
-            column_values { id text value type }
-            updates(limit: 50) {
-              text_body
-              body
-            }
-          }
-        }
-      `
-      
-      console.log('[brides] Querying Monday.com for item', {
-        mondayId,
-        apiUrl: MONDAY_API_URL,
-        hasToken: !!MONDAY_API_TOKEN,
-        tokenPrefix: MONDAY_API_TOKEN?.substring(0, 20)
+      await applyBrideResponseSideEffects({
+        clientItemId,
+        response,
+        actor,
+        displayName,
+        currentStatus,
       })
-      
-      const itemResp: any = await axios.post(
-        MONDAY_API_URL,
-        { query: itemQuery, variables: { id: [mondayId] } },
-        { headers: { Authorization: MONDAY_API_TOKEN, 'Content-Type': 'application/json' } }
-      )
-      
-      // Log full response to diagnose issues
-      console.log('[brides] Full Monday.com API response:', {
-        mondayId,
-        hasData: !!itemResp.data?.data,
-        hasErrors: !!itemResp.data?.errors,
-        errors: itemResp.data?.errors,
-        itemsCount: itemResp.data?.data?.items?.length || 0,
-        rawResponse: JSON.stringify(itemResp.data).substring(0, 500)
-      })
-      
-      const itemData = itemResp.data?.data?.items?.[0]
-      const cols: any[] = itemData?.column_values || []
-      const updatesArr: any[] = itemData?.updates || []
-      
-      console.log('[brides] Raw Monday.com response debug', {
-        mondayId,
-        hasItemData: !!itemData,
-        itemId: itemData?.id,
-        columnsCount: cols.length,
-        updatesCount: updatesArr.length,
-        updatesRaw: updatesArr.slice(0, 3)
-      })
-      const getLabel = (col: any): string => {
-        let t = (col?.text || '').toString().trim()
-        if ((!t || t.length === 0) && col?.value) {
-          try { const v = JSON.parse(col.value); t = v?.label || t } catch {}
-        }
-        return t
-      }
-      let mCol = cols.find(c => c.id === MONDAY_MSTATUS_COLUMN_ID) || cols.find((c:any)=> c.id==='project_status' || c.title?.toLowerCase().includes('mstatus'))
-      let hCol = cols.find(c => c.id === MONDAY_HSTATUS_COLUMN_ID) || cols.find((c:any)=> c.id==='dup__of_mstatus' || c.title?.toLowerCase().includes('hstatus'))
-      
-      // Debug logging to see what columns we found
-      console.log('[brides] Column lookup debug', {
-        mondayId,
-        MONDAY_MSTATUS_COLUMN_ID,
-        MONDAY_HSTATUS_COLUMN_ID,
-        mColFound: !!mCol,
-        hColFound: !!hCol,
-        mColId: mCol?.id,
-        hColId: hCol?.id,
-        mColText: mCol?.text,
-        hColText: hCol?.text,
-        mColValue: mCol?.value,
-        hColValue: hCol?.value,
-        totalColumns: cols.length,
-        columnIds: cols.map((c: any) => c.id).slice(0, 20)
-      })
-      
-      mStatusLabel = getLabel(mCol)
-      hStatusLabel = getLabel(hCol)
-      
-      console.log('[brides] Extracted labels', { mStatusLabel, hStatusLabel })
-      
-      // Fallback gating inference from updates if both labels are empty
-      if (!mStatusLabel && !hStatusLabel) {
-        const email = normEmail(actor.email)
-        const displayName = (actor.type === 'MUA' ? MUA_NAME_BY_EMAIL[email] : HS_NAME_BY_EMAIL[email]) || ''
-        const pattern = displayName ? WHATSAPP_PATTERNS[displayName] : undefined
-        const updatesText = updatesArr.map(u => (u?.text_body || u?.body || '').toString()).join(' ')
-        const patternPresent = !!(pattern && updatesText.includes(pattern))
-        
-        // Debug logging for pattern matching
-        console.log('[brides] Pattern matching debug', {
-          email,
-          displayName,
-          pattern,
-          updatesCount: updatesArr.length,
-          updatesTextLength: updatesText.length,
-          updatesTextPreview: updatesText.substring(0, 500),
-          patternPresent,
-          hasPattern: updatesText.includes(pattern || ''),
-          updates: updatesArr.map(u => ({
-            text_body: (u?.text_body || '').substring(0, 200)
-          }))
-        })
-        // If the logged-in artist's WhatsApp pattern is present on the item, this strongly indicates
-        // the status was "Travelling fee + inquire the artist" (since for second-option the exception
-        // account is excluded from seeing the card). Otherwise, treat as "undecided/second-option" gating.
-        if (actor.type === 'MUA') {
-          if (patternPresent) {
-            mStatusLabel = 'Travelling fee + inquire the artist'
-          } else {
-            mStatusLabel = 'undecided- inquire availabilities'
-          }
-        } else {
-          if (patternPresent) {
-            // HS column wording (no "the").
-            hStatusLabel = 'Travelling fee + inquire artist'
-          } else {
-            hStatusLabel = 'undecided- inquire availabilities'
-          }
-        }
-        console.log('[brides] inferred gating from updates', { actorType: actor.type, patternPresent, displayName, inferredM: mStatusLabel, inferredH: hStatusLabel })
-      }
     } catch (e) {
-      console.warn('[brides] Failed to fetch Clients item for status gating', e)
+      console.error('[proposals] FFadmin bride side-effects failed:', e)
     }
+    return
+  }
 
-    const normalize = (s: string) => (s || '').toLowerCase().replace(/[–—]/g, '-').replace(/\s+/g, ' ').trim()
-    // MUA column uses "Travelling fee + inquire the artist" (with "the").
-    // HS column uses "Travelling fee + inquire artist" (no "the"). Accept both for HS.
-    const isTravellingInquireArtist_M = normalize(mStatusLabel) === 'travelling fee + inquire the artist'
-    const isTravellingInquireArtist_H =
-      normalize(hStatusLabel) === 'travelling fee + inquire the artist' ||
-      normalize(hStatusLabel) === 'travelling fee + inquire artist'
-    const isSecondOption_M = normalize(mStatusLabel) === 'inquire second option'
-    const isSecondOption_H = normalize(hStatusLabel) === 'travelling fee + inquire second option'
-    const isUndecided_M = normalize(mStatusLabel) === 'undecided- inquire availabilities' || normalize(mStatusLabel) === 'undecided - inquire availabilities'
-    const isUndecided_H = normalize(hStatusLabel) === 'undecided- inquire availabilities' || normalize(hStatusLabel) === 'undecided - inquire availabilities'
+  throw new Error('Proposal not found')
+}
 
-    // Brides: YES flows
+async function applyBrideResponseSideEffects({
+  clientItemId,
+  response,
+  actor,
+  displayName,
+  currentStatus,
+}: {
+  clientItemId: string
+  response: ProposalResponse
+  actor: any
+  displayName: string
+  currentStatus: string | null
+}) {
+  const itemIdNum = Number(clientItemId)
+  const norm = (s: string | null) => (s || '').toLowerCase().trim()
+  const st = norm(currentStatus)
+  const pollColumn = EMAIL_TO_POLL_COLUMN[actor.email]
+  const logMessage = response === 'YES' ? `${displayName} pode` : `${displayName} não pode`
+
+  // "Inquire artist" / chosen artist branch
+  if (st === 'inquire artist') {
     if (response === 'YES') {
-      console.log('[brides:YES] start', {
-        mondayId,
-        actorEmail: normEmail(actor.email),
-        actorType: actor.type,
-        mStatusLabel,
-        hStatusLabel,
-      })
-      
-      // Handle "Travelling fee + inquire the artist" status updates
-      // These are critical and should fail loudly if they don't work
-      if (actor.type === 'MUA' && isTravellingInquireArtist_M) {
-        console.log('[brides:YES] Setting MUApode to "Pode!" for MUA', { mondayId, email: actor.email })
-        try {
-          await setClientsStatusLabel(mondayId, MONDAY_CLIENTS_MUAPODE_COL, 'Pode!')
-          console.log('[brides:YES] Successfully set MUApode to "Pode!"')
-        } catch (e) {
-          console.error('[brides:YES] CRITICAL: Failed to set MUApode to "Pode!"', {
-            mondayId,
-            columnId: MONDAY_CLIENTS_MUAPODE_COL,
-            artistEmail: actor.email,
-            error: e
-          })
-          // Re-throw to ensure the error is visible
-          throw new Error(`Failed to set MUApode status for client ${mondayId}: ${e instanceof Error ? e.message : String(e)}`)
-        }
-      }
-      
-      if (actor.type === 'HS' && isTravellingInquireArtist_H) {
-        console.log('[brides:YES] Setting HSpode to "Pode!" for HS', { mondayId, email: actor.email })
-        try {
-          await setClientsStatusLabel(mondayId, MONDAY_CLIENTS_HSPODE_COL, 'Pode!')
-          console.log('[brides:YES] Successfully set HSpode to "Pode!"')
-        } catch (e) {
-          console.error('[brides:YES] CRITICAL: Failed to set HSpode to "Pode!"', {
-            mondayId,
-            columnId: MONDAY_CLIENTS_HSPODE_COL,
-            artistEmail: actor.email,
-            error: e
-          })
-          // Re-throw to ensure the error is visible
-          throw new Error(`Failed to set HSpode status for client ${mondayId}: ${e instanceof Error ? e.message : String(e)}`)
-        }
-      }
-
-      // YES on second-option / undecided -> set Polls TRUE
-      // These are less critical, so we can catch and log without re-throwing
-      const yesNeedsPolls = (actor.type === 'MUA' && (isSecondOption_M || isUndecided_M)) || (actor.type === 'HS' && (isSecondOption_H || isUndecided_H))
-      console.log('[brides:YES] gating', {
-        actorType: actor.type,
-        flags: {
-          isSecondOption_M,
-          isSecondOption_H,
-          isUndecided_M,
-          isUndecided_H,
-          yesNeedsPolls,
-        },
-      })
-      
-      if (yesNeedsPolls) {
-        try {
-          let pollsItemId: string | null = null
-          for (let attempt = 1; attempt <= 5; attempt++) {
-            pollsItemId = await findPollsItemIdByGuestId(mondayId)
-            if (pollsItemId) break
-            await new Promise(res => setTimeout(res, 1000))
-          }
-          console.log('[brides:YES] polls lookup result', { pollsItemId })
-          const email = normEmail(actor.email)
-          const colId = actor.type === 'MUA' ? MUA_POLL_COLUMN_BY_EMAIL[email] : HS_POLL_COLUMN_BY_EMAIL[email]
-          const displayName = (actor.type === 'MUA' ? MUA_NAME_BY_EMAIL[email] : HS_NAME_BY_EMAIL[email]) || actor.user?.username || actor.email
-          const body = `${displayName} pode`
-
-          if (!pollsItemId) {
-            console.warn('[brides:YES] Polls item not found for client', mondayId)
-            // Still add update to Clients item — mirrors the NO flow's fallback
-            await addItemUpdate(mondayId, body)
-            console.log('[brides:YES] wrote Clients update only (no Polls item)')
-          } else {
-            // If mapping exists, set boolean TRUE; either way, add updates to both items
-            if (colId) {
-              console.log('[brides:YES] setting Polls boolean TRUE', { colId, email })
-              await setPollsBoolean(pollsItemId, colId, true)
-            } else {
-              console.warn('[brides:YES] No Polls column mapping for', actor.email)
-            }
-            await Promise.all([
-              addItemUpdate(pollsItemId, body),
-              addItemUpdate(mondayId, body),
-            ])
-            console.log('[brides:YES] wrote updates to Polls and Clients', { body })
-          }
-        } catch (e) {
-          console.error('[brides:YES] Failed to update Polls board (non-critical):', e)
-          // Don't re-throw - Polls updates are supplementary
-        }
-      }
-    }
-
-    // Brides: NO flows
-    if (response === 'NO') {
-      try {
-        console.log('[brides:NO] start', {
-          mondayId,
-          actorEmail: normEmail(actor.email),
-          actorType: actor.type,
-          mStatusLabel,
-          hStatusLabel,
-        })
-        if (actor.type === 'MUA' && isTravellingInquireArtist_M) {
-          // MUA NO on Travelling fee + inquire the artist
-          await setClientsStatusLabel(mondayId, MONDAY_MSTATUS_COLUMN_ID, 'inquire second option')
-          await setClientsStatusLabel(mondayId, MONDAY_CLIENTS_MUAPODE_COL, 'Não pode')
-          const name = MUA_NAME_BY_EMAIL[normEmail(actor.email)] || actor.user?.username || actor.email
-          await addItemUpdate(mondayId, `${name} foi escolhido mas não pode`)
-          console.log('[brides:NO] MUA travelling->second option + MUApode updated')
-        }
-        if (actor.type === 'HS' && isTravellingInquireArtist_H) {
-          // HS NO on Travelling fee + inquire the artist
-          await setClientsStatusLabel(mondayId, MONDAY_HSTATUS_COLUMN_ID, 'Travelling fee + inquire second option')
-          await setClientsStatusLabel(mondayId, MONDAY_CLIENTS_HSPODE_COL, 'Não pode')
-          const name = HS_NAME_BY_EMAIL[normEmail(actor.email)] || actor.user?.username || actor.email
-          await addItemUpdate(mondayId, `${name} foi escolhido mas não pode`)
-          console.log('[brides:NO] HS travelling->second option + HSpode updated')
-        }
-
-        // NO on second-option / undecided -> set Polls FALSE + updates (both MUA and HS)
-        const noNeedsPolls = (actor.type === 'MUA' && (isSecondOption_M || isUndecided_M)) || (actor.type === 'HS' && (isSecondOption_H || isUndecided_H))
-        console.log('[brides:NO] gating', {
-          actorType: actor.type,
-          flags: {
-            isSecondOption_M,
-            isSecondOption_H,
-            isUndecided_M,
-            isUndecided_H,
-            noNeedsPolls,
+      // PATCH clients.mua_pode or hs_pode = 'Pode!'
+      const field = actor.type === 'MUA' ? 'mua_pode' : 'hs_pode'
+      await ffadmin.from('clients').update({ [field]: 'Pode!' }).eq('item_id', itemIdNum)
+      await addFFadminActivityLog(itemIdNum, `${displayName} pode`)
+    } else {
+      // Artist cannot — escalate to second option via FFadmin client-action
+      const action = actor.type === 'MUA' ? 'artist_cannot_mua' : 'artist_cannot_hs'
+      const ffadminUrl = process.env.FFADMIN_URL
+      if (ffadminUrl) {
+        await fetch(`${ffadminUrl}/api/client-action`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-ffuser-secret': process.env.FFADMIN_WEBHOOK_SECRET || '',
           },
-        })
-        if (noNeedsPolls) {
-          let pollsItemId: string | null = null
-          for (let attempt = 1; attempt <= 5; attempt++) {
-            pollsItemId = await findPollsItemIdByGuestId(mondayId)
-            if (pollsItemId) break
-            await new Promise(res => setTimeout(res, 1000))
-          }
-          console.log('[brides:NO] polls lookup result', { pollsItemId })
-          const email = normEmail(actor.email)
-          const colId = actor.type === 'MUA' ? MUA_POLL_COLUMN_BY_EMAIL[email] : HS_POLL_COLUMN_BY_EMAIL[email]
-          const displayName = (actor.type === 'MUA' ? MUA_NAME_BY_EMAIL[email] : HS_NAME_BY_EMAIL[email]) || actor.user?.username || actor.email
-          const body = `${displayName} não pode`
-
-          if (!pollsItemId) {
-            console.warn('[brides:NO] Polls item not found for client', mondayId)
-            // Still add update to Clients item per spec
-            await addItemUpdate(mondayId, body)
-            console.log('[brides:NO] wrote Clients update only (no Polls item)')
-          } else {
-            // If mapping exists, set boolean false; either way, add updates
-            if (colId) {
-              console.log('[brides:NO] setting Polls boolean FALSE', { colId, email })
-              await setPollsBoolean(pollsItemId, colId, false)
-            } else {
-              console.warn('[brides:NO] No Polls column mapping for', actor.email)
-            }
-            await Promise.all([
-              addItemUpdate(pollsItemId, body),
-              addItemUpdate(mondayId, body),
-            ])
-            console.log('[brides:NO] wrote updates to Polls and Clients', { body })
-          }
-        }
-      } catch (e) {
-        console.error('[brides:NO] Failed to apply Clients/Polls updates:', e)
+          body: JSON.stringify({ item_id: itemIdNum, action }),
+        }).catch(e => console.error('[proposals] client-action call failed:', e))
+      } else {
+        // Fallback: patch directly
+        const statusField = actor.type === 'MUA' ? 'm_status' : 'h_status'
+        const podeField = actor.type === 'MUA' ? 'mua_pode' : 'hs_pode'
+        const secondOption = actor.type === 'MUA' ? 'inquire second option' : 'inquire second option'
+        await ffadmin.from('clients')
+          .update({ [statusField]: secondOption, [podeField]: 'Não pode' })
+          .eq('item_id', itemIdNum)
+        await addFFadminActivityLog(itemIdNum, `${displayName} foi escolhido mas não pode`)
       }
     }
     return
   }
 
-  // If we get here, the ID didn't match any supported format
-  throw new Error('Proposal not found')
+  // "undecided" / "inquire second option" branch → polls + activity log
+  if (st === 'undecided' || st === 'inquire second option') {
+    const { data: pollsRow } = await ffadmin
+      .from('polls')
+      .select('id')
+      .eq('item_id', itemIdNum)
+      .maybeSingle()
+
+    if (pollsRow && pollColumn) {
+      await ffadmin.from('polls').update({ [pollColumn]: response === 'YES' }).eq('id', pollsRow.id)
+    }
+
+    await addFFadminActivityLog(itemIdNum, logMessage)
+  }
 }
 
-/**
- * Get proposal statistics for an artist
- */
+// ── Proposal statistics ───────────────────────────────────────────────────────
+
 export async function getArtistProposalStats(artistId: string) {
   const [totalProposals, acceptedProposals, rejectedProposals, pendingProposals] = await Promise.all([
-    prisma.proposal.count({
-      where: { artistId },
-    }),
-    prisma.proposal.count({
-      where: { artistId, response: 'YES' },
-    }),
-    prisma.proposal.count({
-      where: { artistId, response: 'NO' },
-    }),
-    prisma.proposal.count({
-      where: { artistId, response: null },
-    }),
+    prisma.proposal.count({ where: { artistId } }),
+    prisma.proposal.count({ where: { artistId, response: 'YES' } }),
+    prisma.proposal.count({ where: { artistId, response: 'NO' } }),
+    prisma.proposal.count({ where: { artistId, response: null } }),
   ])
 
   const responseRate = totalProposals > 0 ? ((acceptedProposals + rejectedProposals) / totalProposals) * 100 : 0

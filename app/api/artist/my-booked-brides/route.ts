@@ -1,55 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireArtist, handleAuthError } from '@/lib/auth'
-import axios from 'axios'
+import { ffadmin } from '@/lib/ffadmin'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
-
-const MONDAY_API_URL = 'https://api.monday.com/v2'
-const MONDAY_API_TOKEN = process.env.MONDAY_API_TOKEN
-const MONDAY_CLIENTS_BOARD_ID =
-  process.env.MONDAY_CLIENTS_BOARD_ID || process.env.MONDAY_BOARD_ID || '1260828829'
-const MONDAY_MSTATUS_COLUMN_ID = process.env.MONDAY_MSTATUS_COLUMN_ID || 'project_status'
-const MONDAY_HSTATUS_COLUMN_ID = process.env.MONDAY_HSTATUS_COLUMN_ID || 'dup__of_mstatus'
-
-// Resolve env var, falling back if placeholder strings slipped through
-const MONDAY_CHOSEN_MUA_COLUMN_ID =
-  !process.env.MONDAY_CHOSEN_MUA_COLUMN_ID ||
-  process.env.MONDAY_CHOSEN_MUA_COLUMN_ID === 'chosen_mua_column_id'
-    ? 'connect_boards'
-    : process.env.MONDAY_CHOSEN_MUA_COLUMN_ID
-
-const MONDAY_CHOSEN_HS_COLUMN_ID =
-  !process.env.MONDAY_CHOSEN_HS_COLUMN_ID ||
-  process.env.MONDAY_CHOSEN_HS_COLUMN_ID === 'chosen_hs_column_id'
-    ? 'connect_boards0'
-    : process.env.MONDAY_CHOSEN_HS_COLUMN_ID
-
-/**
- * Extract linked item IDs from a connect_boards column value.
- * Handles two formats:
- *  1. BoardRelationValue inline fragment → col.linked_item_ids (string[])
- *  2. Legacy JSON value field           → {"linkedPulseIds":[{"linkedPulseId":123}]}
- */
-function parseLinkedPulseIds(col: any): string[] {
-  if (!col) return []
-
-  // Preferred: inline fragment exposes linked_item_ids directly as a string array
-  if (Array.isArray(col.linked_item_ids) && col.linked_item_ids.length > 0) {
-    return col.linked_item_ids.map(String)
-  }
-
-  // Fallback: parse the legacy JSON value string
-  if (col.value) {
-    try {
-      const parsed = JSON.parse(col.value)
-      const ids: any[] = parsed?.linkedPulseIds || []
-      return ids.map((lp: any) => String(lp.linkedPulseId)).filter(Boolean)
-    } catch {}
-  }
-
-  return []
-}
 
 export async function GET(request: NextRequest) {
   try {
@@ -64,152 +18,82 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Artist not found' }, { status: 404 })
     }
 
-    // Which status column and booked label apply to this artist type
-    const statusColumnId =
-      artist.type === 'MUA' ? MONDAY_MSTATUS_COLUMN_ID : MONDAY_HSTATUS_COLUMN_ID
-    const bookedStatus = artist.type === 'MUA' ? 'MUA booked!' : 'H booked!'
+    // Look up this artist's full display name in FFadmin
+    const artistTable = artist.type === 'MUA' ? 'makeup_artists' : 'hairstylists'
+    const nameCol = artist.type === 'MUA' ? 'mua_full_name' : 'hs_full_name'
+    const emailCol = artist.type === 'MUA' ? 'mua_email' : 'hs_email'
 
-    // The connect_boards column that points TO this artist's type
-    const myColumnId =
-      artist.type === 'MUA' ? MONDAY_CHOSEN_MUA_COLUMN_ID : MONDAY_CHOSEN_HS_COLUMN_ID
+    const { data: artistRow } = await ffadmin
+      .from(artistTable)
+      .select(nameCol)
+      .eq(emailCol, artist.email)
+      .maybeSingle()
 
-    // The connect_boards column for the OTHER service type (companion artist)
-    const companionColumnId =
-      artist.type === 'MUA' ? MONDAY_CHOSEN_HS_COLUMN_ID : MONDAY_CHOSEN_MUA_COLUMN_ID
+    const fullName: string | null = artistRow?.[nameCol] ?? null
+    if (!fullName) {
+      console.warn('[my-booked-brides] Artist full name not found in FFadmin for', artist.email)
+      return NextResponse.json({ brides: [] })
+    }
 
-    // Use items_page_by_column_values to pre-filter by booked status — much faster than a
-    // full board scan because Monday does the filtering server-side.
-    const mondayQuery = `
-      query GetBookedItems($boardId: ID!, $columns: [ItemsPageByColumnValuesQuery!], $cursor: String) {
-        items_page_by_column_values(
-          board_id: $boardId
-          columns: $columns
-          limit: 500
-          cursor: $cursor
-        ) {
-          cursor
-          items {
-            id
-            name
-            column_values {
-              id
-              text
-              value
-              ... on BoardRelationValue {
-                linked_item_ids
+    // Query clients booked with this artist
+    const bookedStatus = artist.type === 'MUA' ? 'MUA booked!' : 'HS booked!'
+    const chosenCol = artist.type === 'MUA' ? 'chosen_mua' : 'chosen_hs'
+    const companionChosenCol = artist.type === 'MUA' ? 'chosen_hs' : 'chosen_mua'
+    const companionTable = artist.type === 'MUA' ? 'hairstylists' : 'makeup_artists'
+    const companionNameCol = artist.type === 'MUA' ? 'hs_full_name' : 'mua_full_name'
+    const companionEmailCol = artist.type === 'MUA' ? 'hs_email' : 'mua_email'
+    const statusField = artist.type === 'MUA' ? 'm_status' : 'h_status'
+
+    const { data: clients, error } = await ffadmin
+      .from('clients')
+      .select('*')
+      .eq(statusField, bookedStatus)
+      .eq(chosenCol, fullName)
+
+    if (error) {
+      console.error('[my-booked-brides] FFadmin query error:', error)
+      return NextResponse.json({ error: 'FFadmin query failed' }, { status: 502 })
+    }
+
+    // For each client, look up the companion artist info
+    const brides = await Promise.all(
+      (clients || []).map(async (client: any) => {
+        const companionFullName: string | null = client[companionChosenCol] ?? null
+        let companion: { name: string; type: string; profilePicture: null } | null = null
+
+        if (companionFullName) {
+          const { data: companionRow } = await ffadmin
+            .from(companionTable)
+            .select(companionEmailCol)
+            .eq(companionNameCol, companionFullName)
+            .maybeSingle()
+
+          if (companionRow) {
+            const companionArtist = await prisma.artist.findFirst({
+              where: { email: companionRow[companionEmailCol] },
+              include: { user: true },
+            })
+            if (companionArtist) {
+              companion = {
+                name: companionArtist.user?.username || companionArtist.email,
+                type: companionArtist.type,
+                profilePicture: null,
               }
             }
           }
         }
-      }
-    `
 
-    let allBooked: any[] = []
-    let cursor: string | null = null
-    let hasMore = true
-
-    while (hasMore) {
-      const resp: any = await axios.post(
-        MONDAY_API_URL,
-        {
-          query: mondayQuery,
-          variables: {
-            boardId: MONDAY_CLIENTS_BOARD_ID,
-            columns: [{ column_id: statusColumnId, column_values: [bookedStatus] }],
-            cursor,
-          },
-        },
-        {
-          headers: {
-            Authorization: MONDAY_API_TOKEN,
-            'Content-Type': 'application/json',
-          },
+        return {
+          clientItemId: String(client.item_id),
+          brideName: client.bride_name || '',
+          weddingDate: client.wedding_date || null,
+          beautyVenue: client.beauty_venue || '',
+          companion,
         }
-      )
-
-      if (resp.data?.errors) {
-        console.error('[my-booked-brides] Monday API errors:', resp.data.errors)
-        return NextResponse.json({ error: 'Monday API error' }, { status: 502 })
-      }
-
-      const page = resp.data?.data?.items_page_by_column_values
-      if (!page) break
-      allBooked = allBooked.concat(page.items || [])
-      cursor = page.cursor
-      hasMore = !!cursor
-    }
-    console.log(
-      `[my-booked-brides] ${artist.email} (${artist.type}): ${allBooked.length} booked items from Monday`
-    )
-    // Filter to items where this artist is the linked artist in their column
-    const myItems = allBooked.filter((item) => {
-      const col = item.column_values.find((c: any) => c.id === myColumnId)
-      const linkedIds = parseLinkedPulseIds(col)
-      return linkedIds.includes(String(artist.mondayItemId))
-    })
-
-    console.log(`[my-booked-brides] ${myItems.length} items linked to this artist`)
-
-    // Collect all companion artist Monday item IDs so we can batch-fetch from DB
-    const companionMondayIds = myItems
-      .flatMap((item) => {
-        const col = item.column_values.find((c: any) => c.id === companionColumnId)
-        return parseLinkedPulseIds(col)
       })
-      .filter(Boolean)
+    )
 
-    // Look up companion artists in the DB (for name + profile picture)
-    const companionArtists =
-      companionMondayIds.length > 0
-        ? await prisma.artist.findMany({
-            where: { mondayItemId: { in: companionMondayIds } },
-            include: { user: true },
-          })
-        : []
-
-    const companionByMondayId = new Map(companionArtists.map((a) => [a.mondayItemId, a]))
-
-    // Build the response payload
-    const brides = myItems.map((item) => {
-      const cols: any[] = item.column_values
-      const getCol = (id: string) => cols.find((c: any) => c.id === id)
-
-      const brideName = getCol('short_text8')?.text || item.name
-
-      // Wedding date
-      const dateCol = getCol('date6')
-      let weddingDate: string | null = null
-      if (dateCol?.text) {
-        weddingDate = dateCol.text
-      } else if (dateCol?.value) {
-        try {
-          weddingDate = JSON.parse(dateCol.value)?.date ?? null
-        } catch {}
-      }
-
-      const beautyVenue = getCol('short_text1')?.text || ''
-
-      // Companion artist (first linked ID wins)
-      const companionCol = getCol(companionColumnId)
-      const companionIds = parseLinkedPulseIds(companionCol)
-      const companion = companionIds.length > 0 ? companionByMondayId.get(companionIds[0]) : null
-
-      return {
-        mondayItemId: String(item.id),
-        brideName,
-        weddingDate,
-        beautyVenue,
-        companion: companion
-          ? {
-              name: companion.user?.username || companion.email,
-              type: companion.type,
-              profilePicture: companion.profilePicture ?? null,
-            }
-          : null,
-      }
-    })
-
-    // Sort by wedding date ascending (soonest first), nulls last
+    // Sort by wedding date ascending
     brides.sort((a, b) => {
       if (!a.weddingDate) return 1
       if (!b.weddingDate) return -1

@@ -73,7 +73,6 @@ model Artist {
   type          ArtistType
   tier          Tier
   email         String      @unique
-  mondayItemId  String      @unique
   active        Boolean     @default(true)
   profilePicture String?
   createdAt     DateTime    @default(now())
@@ -86,7 +85,7 @@ model Artist {
 
 model ClientService {
   id                        String      @id @default(cuid())
-  mondayClientItemId        String
+  clientItemId              String
   service                   ServiceType
   bridesName                String
   weddingDate               DateTime
@@ -101,7 +100,7 @@ model ClientService {
   auditLogs AuditLog[] @relation("ClientServiceAuditLogs")
   trials    Trial[]
 
-  @@index([mondayClientItemId, service])
+  @@index([clientItemId, service])
 }
 
 model ProposalBatch {

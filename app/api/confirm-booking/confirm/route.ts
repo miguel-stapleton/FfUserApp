@@ -1,104 +1,78 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireArtist } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { upsertClientServiceFromMonday } from '@/lib/services/clients'
 import { logAudit } from '@/lib/audit'
-import { ServiceType as PrismaServiceType } from '@prisma/client'
-import axios from 'axios'
-
-const MONDAY_API_URL = 'https://api.monday.com/v2'
-const MONDAY_API_TOKEN = process.env.MONDAY_API_TOKEN || ''
-const CLIENTS_BOARD_ID = 1260828829
+import { ffadmin, addFFadminActivityLog, EMAIL_TO_DISPLAY_NAME } from '@/lib/ffadmin'
 
 export async function POST(request: NextRequest) {
   try {
     const user = await requireArtist(request)
     const body = await request.json()
     const itemId: string | undefined = body?.itemId
+    if (!itemId) return NextResponse.json({ success: false, error: 'Missing itemId' }, { status: 400 })
 
-    if (!itemId) {
-      return NextResponse.json({ success: false, error: 'Missing itemId' }, { status: 400 })
-    }
-
-    // Fetch artist record to get type and email
     const artist = await prisma.artist.findFirst({
       where: { userId: user.id, active: true },
       select: { id: true, email: true, type: true },
     })
+    if (!artist) return NextResponse.json({ success: false, error: 'Artist not found' }, { status: 404 })
 
-    if (!artist) {
-      return NextResponse.json({ success: false, error: 'Artist not found' }, { status: 404 })
+    const statusField = artist.type === 'MUA' ? 'm_status' : 'h_status'
+    const bookedStatus = artist.type === 'MUA' ? 'MUA booked!' : 'HS booked!'
+    const itemIdNum = Number(itemId)
+
+    // PATCH FFadmin clients status to booked
+    const { error } = await ffadmin
+      .from('clients')
+      .update({ [statusField]: bookedStatus })
+      .eq('item_id', itemIdNum)
+
+    if (error) {
+      console.error('[confirm-booking:confirm] FFadmin patch failed:', error)
+      return NextResponse.json({ success: false, error: 'Failed to update status' }, { status: 500 })
     }
 
-    const serviceTypeEnum: PrismaServiceType = artist.type as PrismaServiceType
+    // Activity log
+    const displayName = EMAIL_TO_DISPLAY_NAME[artist.email] || 'Artista'
+    await addFFadminActivityLog(
+      itemIdNum,
+      `${displayName} confirmou reserva. Status atualizado para "${bookedStatus}".`
+    )
 
-    // Ensure ClientService exists for this Monday item
-    const clientServiceId = await upsertClientServiceFromMonday(String(itemId), serviceTypeEnum)
-
-    // Update Monday status on Clients board
-    const columnId = artist.type === 'MUA' ? 'project_status' : 'dup__of_mstatus'
-    const label = artist.type === 'MUA' ? 'MUA booked!' : 'H booked!'
-    try {
-      const mutation = `
-        mutation UpdateStatus($itemId: ID!, $boardId: ID!, $columnValues: JSON!) {
-          change_multiple_column_values(
-            item_id: $itemId,
-            board_id: $boardId,
-            column_values: $columnValues
-          ) {
-            id
-          }
-        }
-      `
-      await axios.post(
-        MONDAY_API_URL,
-        {
-          query: mutation,
-          variables: {
-            itemId: String(itemId),
-            boardId: CLIENTS_BOARD_ID,
-            columnValues: JSON.stringify({ [columnId]: { label } }),
-          },
+    // Ensure local ClientService exists for audit FK
+    let clientService = await prisma.clientService.findFirst({
+      where: { clientItemId: itemId, service: artist.type as any },
+    })
+    if (!clientService) {
+      clientService = await prisma.clientService.create({
+        data: {
+          clientItemId: itemId,
+          service: artist.type as any,
+          bridesName: 'Client',
+          weddingDate: new Date(),
+          beautyVenue: '',
         },
-        {
-          headers: {
-            Authorization: MONDAY_API_TOKEN,
-            'Content-Type': 'application/json',
-          },
-        }
-      )
-    } catch (err) {
-      console.error('[confirm-booking:confirm] Failed to update Monday status', {
-        itemId,
-        columnId,
-        label,
-        err,
       })
-      // Do not fail the whole flow if Monday update fails
     }
 
-    // Log audit event
     await logAudit({
       userId: user.id,
       action: 'CONFIRM_BOOKING',
       entityType: 'CLIENT_SERVICE',
-      entityId: clientServiceId,
+      entityId: clientService.id,
       details: {
-        mondayItemId: String(itemId),
+        clientItemId: itemId,
         artistId: artist.id,
         artistEmail: artist.email,
         artistType: artist.type,
-        monday: { columnId, label },
+        bookedStatus,
         confirmedAt: new Date().toISOString(),
       },
     })
 
     return NextResponse.json({ success: true })
   } catch (error: any) {
-    console.error('[confirm-booking:confirm] error', error)
-    return NextResponse.json(
-      { success: false, error: error?.message || 'Internal error' },
-      { status: 500 }
-    )
+    console.error('[confirm-booking:confirm] error:', error)
+    return NextResponse.json({ success: false, error: error?.message || 'Internal error' }, { status: 500 })
   }
 }
