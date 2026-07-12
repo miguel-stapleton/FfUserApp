@@ -68,9 +68,16 @@ export function ProposalCard({ proposal, onRespond }: ProposalCardProps) {
               <span>{formatDate(proposal.eventDate)}</span>
             </div>
           </div>
-          <Badge variant="secondary" className="bg-pink-100 text-pink-800">
-            {String(proposal.serviceType) === 'MUA' ? 'Makeup' : 'Hair Styling'}
-          </Badge>
+          <div className="flex flex-col items-end gap-1">
+            <Badge variant="secondary" className="bg-pink-100 text-pink-800">
+              {String(proposal.serviceType) === 'MUA' ? 'Makeup' : 'Hair Styling'}
+            </Badge>
+            {proposal.isIndependentGuest && (
+              <Badge variant="secondary" className="bg-purple-100 text-purple-800 text-xs">
+                Independent Guest
+              </Badge>
+            )}
+          </div>
         </div>
       </CardHeader>
 

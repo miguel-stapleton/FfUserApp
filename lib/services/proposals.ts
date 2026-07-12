@@ -151,6 +151,7 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
           observations: '',
           createdAt: new Date(),
           isExpired: false,
+          isIndependentGuest: true,
         })
       }
     }

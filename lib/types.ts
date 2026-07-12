@@ -121,6 +121,7 @@ export interface ArtistProposalCard {
   createdAt: Date
   isExpired: boolean
   timeRemaining?: string
+  isIndependentGuest?: boolean
 }
 
 export interface BackofficeRow {
