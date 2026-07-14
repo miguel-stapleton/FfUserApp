@@ -96,10 +96,11 @@ export async function addFFadminActivityLog(
   clientId: number,
   message: string,
   author = 'Artist',
-  type = 'artist'
+  type = 'artist',
+  isGuest = false
 ) {
   const { error } = await ffadmin.from('activity_log').insert({
-    client_id: clientId,
+    ...(isGuest ? { guest_id: clientId } : { client_id: clientId }),
     message,
     author,
     type,

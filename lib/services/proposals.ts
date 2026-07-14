@@ -305,7 +305,7 @@ export async function respondToProposal({
         .maybeSingle()
 
       if (guestRow) {
-        await addFFadminActivityLog(itemIdNum, logMessage)
+        await addFFadminActivityLog(itemIdNum, logMessage, 'Artist', 'artist', true)
       }
     } catch (e) {
       console.error('[proposals] FFadmin side-effects failed for guest:', e)
