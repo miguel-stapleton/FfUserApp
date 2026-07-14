@@ -29,6 +29,7 @@ export default function GetClientsPage() {
       const response = await fetch('/api/proposals/list', {
         method: 'GET',
         credentials: 'include',
+        cache: 'no-store',
       })
 
       if (!response.ok) {

@@ -36,7 +36,9 @@ export async function GET(request: NextRequest) {
     const { getOpenProposalsForArtist } = await import('@/lib/services/proposals')
     const proposals = await getOpenProposalsForArtist(payload.userId)
 
-    return NextResponse.json({ proposals })
+    return NextResponse.json({ proposals }, {
+      headers: { 'Cache-Control': 'no-store' },
+    })
 
   } catch (error) {
     console.error('Failed to fetch proposals:', error)
