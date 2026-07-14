@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getUserFromRequest } from '@/lib/auth'
 import { ffadmin } from '@/lib/ffadmin'
+import { getOpenProposalsForArtist } from '@/lib/services/proposals'
 
 const ALLOWED_EMAILS = new Set(['info@miguelstapleton.art'])
 
@@ -55,6 +56,15 @@ export async function GET(request: NextRequest) {
     include: { proposals: { select: { response: true } } },
   })
 
+  // Call the actual proposals function and see what it returns
+  let actualProposals: any[] = []
+  let actualProposalsError: string | null = null
+  try {
+    actualProposals = await getOpenProposalsForArtist(me.id)
+  } catch (e: any) {
+    actualProposalsError = e?.message ?? String(e)
+  }
+
   return NextResponse.json({
     now: now.toISOString(),
     logged_in_as: { email: me.email, role: me.role, userId: me.id },
@@ -66,6 +76,14 @@ export async function GET(request: NextRequest) {
     null_client_services: nullClientServices.map((cs: any) => ({
       id: cs.id, service: cs.service,
       responses: cs.proposals.map((p: any) => p.response),
+    })),
+    actual_proposals_count: actualProposals.length,
+    actual_proposals_error: actualProposalsError,
+    actual_proposals: actualProposals.map(p => ({
+      id: p.id,
+      clientName: p.clientName,
+      eventDate: p.eventDate,
+      isIndependentGuest: p.isIndependentGuest ?? false,
     })),
   })
 }
