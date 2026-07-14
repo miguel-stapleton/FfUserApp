@@ -135,6 +135,7 @@ export async function getOpenProposalsForArtist(userId: string): Promise<ArtistP
       console.error('[proposals] FFadmin independent_guests fetch failed:', error)
     } else if (guests) {
       for (const g of guests) {
+        if (!g.item_id_ind) continue  // skip rows where item_id_ind was never set
         const itemId = String(g.item_id_ind)
         if (respondedClientIds.has(itemId)) continue
 
