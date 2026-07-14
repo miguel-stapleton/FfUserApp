@@ -88,6 +88,12 @@ export default function GetClientsPage() {
 
   useEffect(() => {
     fetchProposals()
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') fetchProposals()
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
   }, [])
 
   const EmptyState = () => (

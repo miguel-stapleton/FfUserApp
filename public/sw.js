@@ -40,6 +40,8 @@ self.addEventListener('notificationclick', (event) => {
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
         if ('focus' in client) {
+          // Navigate to the target URL before focusing so the artist sees a fresh list
+          if ('navigate' in client) client.navigate(url)
           return client.focus()
         }
       }
